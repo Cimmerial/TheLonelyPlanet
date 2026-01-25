@@ -1,0 +1,10 @@
+{
+    "MsBuild": {
+        "UseLegacySdkResolver": true,
+        "EnablePackageAutoRestoration": true
+    },
+    "RoslynExtensionsOptions": {
+        "EnableAnalyzersSupport": true,
+        "EnableImportCompletion": true
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "dotnet.defaultSolution": "LonelyPlanet.slnx",
+    "dotnet.server.useOmnisharp": true,
+    "omnisharp.useModernNet": false,
+    "omnisharp.autoStart": true,
+    "files.exclude": {
+        "**/*.meta": true,
+        "**/*.unitypackage": true,
+        "**/Builds": true
+    }
+}
