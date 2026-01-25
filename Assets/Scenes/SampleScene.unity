@@ -123,6 +123,37 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &2377475
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2377476}
+  m_Layer: 0
+  m_Name: -----MANMADE-----
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2377476
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2377475}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.61916095, y: 0.7914684, z: -0.24124278}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &193548409
 GameObject:
   m_ObjectHideFlags: 0
@@ -133,8 +164,8 @@ GameObject:
   m_Component:
   - component: {fileID: 193548410}
   - component: {fileID: 193548411}
-  m_Layer: 0
-  m_Name: TheLonelyPlanet
+  m_Layer: 6
+  m_Name: TheLonelyPlanet (Home)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -182,6 +213,37 @@ MonoBehaviour:
   totalMass: 0
   surfaceGravity: 0
   maxInfluenceRadius: 0
+--- !u!1 &259536641
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 259536642}
+  m_Layer: 0
+  m_Name: -----SYSTEMS-----
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &259536642
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 259536641}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.61916095, y: 0.7914684, z: -0.24124278}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &355723915
 GameObject:
   m_ObjectHideFlags: 0
@@ -212,18 +274,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   spriteName: Skiff
-  massPerPixel: 1
+  massPerPixel: 0.5
   vehicleSpriteRenderer: {fileID: 0}
   vehicleCollider: {fileID: 0}
   vehicleTexture: {fileID: 0}
   rb: {fileID: 0}
   atmosphericPhysics: {fileID: 0}
   totalMass: 0
-  movementForce: 50
+  movementSpeed: 2
   maxSpeed: 5
   usePlayerInput: 1
   placeOnPlanetOnStart: 1
-  hoverHeight: 0.2
+  hoverHeight: 0.05
+  groundCheckDistance: 4
 --- !u!4 &355723917
 Transform:
   m_ObjectHideFlags: 0
@@ -233,7 +296,7 @@ Transform:
   m_GameObject: {fileID: 355723915}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.69, y: 0.91, z: -0.22323586}
+  m_LocalPosition: {x: 1.228, y: 1.097, z: -0.22323586}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -250,6 +313,7 @@ GameObject:
   - component: {fileID: 519420032}
   - component: {fileID: 519420031}
   - component: {fileID: 519420029}
+  - component: {fileID: 519420033}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -331,6 +395,25 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &519420033
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519420028}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0580e306e16c545dfb8a5819bca4582f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  freeMoveSpeed: 8
+  freeZoomSpeed: 4
+  followSmoothness: 5
+  planetZoomRatio: 150
+  vehicleZoomRatio: 20
+  uiCanvas: {fileID: 0}
+  statusText: {fileID: 0}
 --- !u!1 &1023270819
 GameObject:
   m_ObjectHideFlags: 0
@@ -526,7 +609,7 @@ MonoBehaviour:
   accumulatedForce: 0
   atomizeThreshold: 0
   isFragment: 0
-  startInOrbit: 1
+  startInOrbit: 0
   orbitTarget: {fileID: 193548410}
   toughnessMultiplier: 1
   collisionForceMultiplier: 0.33
@@ -546,6 +629,37 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1535845243
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1535845244}
+  m_Layer: 0
+  m_Name: -----SPACE-----
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1535845244
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1535845243}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.61916095, y: 0.7914684, z: -0.24124278}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1575278615
 GameObject:
   m_ObjectHideFlags: 0
@@ -556,8 +670,8 @@ GameObject:
   m_Component:
   - component: {fileID: 1575278617}
   - component: {fileID: 1575278616}
-  m_Layer: 0
-  m_Name: Planet (1)
+  m_Layer: 6
+  m_Name: Junior
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -749,7 +863,7 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 519420032}
+  - {fileID: 1535845244}
   - {fileID: 193548410}
   - {fileID: 1575278617}
   - {fileID: 1478766762}
@@ -758,4 +872,7 @@ SceneRoots:
   - {fileID: 1193912715}
   - {fileID: 1023270820}
   - {fileID: 1337668855}
+  - {fileID: 2377476}
   - {fileID: 355723917}
+  - {fileID: 259536642}
+  - {fileID: 519420032}

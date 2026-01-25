@@ -187,7 +187,14 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
 
     void OnCollisionStay2D(Collision2D collision)
     {
-        if (collision.gameObject.TryGetComponent<Planet>(out _))
+        // Check both the collision GameObject and its parent for Planet component
+        Planet planet = collision.gameObject.GetComponent<Planet>();
+        if (planet == null && collision.gameObject.transform.parent != null)
+        {
+            planet = collision.gameObject.transform.parent.GetComponent<Planet>();
+        }
+        
+        if (planet != null)
         {
             atmosphericPhysics?.OnPlanetCollisionStay();
         }
@@ -195,7 +202,14 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
 
     void OnCollisionExit2D(Collision2D collision)
     {
-        if (collision.gameObject.TryGetComponent<Planet>(out _))
+        // Check both the collision GameObject and its parent for Planet component
+        Planet planet = collision.gameObject.GetComponent<Planet>();
+        if (planet == null && collision.gameObject.transform.parent != null)
+        {
+            planet = collision.gameObject.transform.parent.GetComponent<Planet>();
+        }
+        
+        if (planet != null)
         {
             atmosphericPhysics?.OnPlanetCollisionExit();
         }
@@ -205,8 +219,15 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
     {
         if (Time.time - spawnTime < collisionGracePeriod) return;
 
+        // Check both the collision GameObject and its parent for Planet component
+        Planet planet = collision.gameObject.GetComponent<Planet>();
+        if (planet == null && collision.gameObject.transform.parent != null)
+        {
+            planet = collision.gameObject.transform.parent.GetComponent<Planet>();
+        }
+        
         // Mark as grounded
-        if (collision.gameObject.TryGetComponent<Planet>(out _))
+        if (planet != null)
         {
             atmosphericPhysics?.OnPlanetCollisionEnter();
         }

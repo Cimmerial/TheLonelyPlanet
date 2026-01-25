@@ -13,7 +13,7 @@ public class AtmosphericPhysics : MonoBehaviour
     [SerializeField] private float surfaceDragStrength = 50f;
     
     [Header("Grounding Settings")]
-    [SerializeField] private int groundedFrameThreshold = 3;
+    [SerializeField] private int groundedFrameThreshold = 5; // Increased from 3 to 5 for stability
     
     [Header("Tidal Locking (for grounded objects)")]
     [SerializeField] private bool enableTidalLocking = false; // Disabled by default - vehicles control their own orientation
@@ -75,6 +75,12 @@ public class AtmosphericPhysics : MonoBehaviour
     {
         if (rb == null) return;
         
+        // Don't apply physics to kinematic bodies - they handle their own movement
+        if (rb.bodyType == RigidbodyType2D.Kinematic)
+        {
+            return;
+        }
+        
         Planet nearestPlanet = FindNearestPlanet();
         bool isInAtmosphere = nearestPlanet != null && CheckIfInAtmosphereOf(nearestPlanet);
         bool grounded = IsGrounded;
@@ -108,12 +114,12 @@ public class AtmosphericPhysics : MonoBehaviour
                     ApplyTidalLocking(nearestPlanet);
                 }
                 
-                // Damping to settle
-                if (rb.velocity.magnitude < 0.05f)
+                // Strong damping to settle and prevent bouncing
+                if (rb.velocity.magnitude < 1f)
                 {
-                    rb.velocity *= 0.9f;
-                    rb.angularVelocity *= 0.9f;
+                    rb.velocity *= 0.95f;
                 }
+                rb.angularVelocity *= 0.9f;
             }
             else
             {
@@ -243,6 +249,8 @@ public class AtmosphericPhysics : MonoBehaviour
     public void OnPlanetCollisionEnter()
     {
         groundedFrames = groundedFrameThreshold;
+        Debug.Log($"[{gameObject.name}] GROUNDED - frames={groundedFrames}"); // ED
+        // Debug.Log($"[{gameObject.name}] OnPlanetCollisionEnter - groundedFrames set to {groundedFrames}");
     }
     
     /// <summary>
@@ -251,6 +259,7 @@ public class AtmosphericPhysics : MonoBehaviour
     public void OnPlanetCollisionStay()
     {
         groundedFrames = groundedFrameThreshold;
+        // Commented out to reduce spam: Debug.Log($"[{gameObject.name}] OnPlanetCollisionStay - groundedFrames refreshed");
     }
     
     /// <summary>
@@ -259,9 +268,11 @@ public class AtmosphericPhysics : MonoBehaviour
     public void OnPlanetCollisionExit()
     {
         groundedFrames = 0;
+        Debug.Log($"[{gameObject.name}] UNGROUNDED"); // EDITED
+        // Debug.Log($"[{gameObject.name}] OnPlanetCollisionExit - groundedFrames set to 0");
         
         // Restore some tumbling when leaving surface
-        if (rb != null)
+        if (rb != null && rb.bodyType == RigidbodyType2D.Dynamic)
         {
             rb.angularVelocity = Random.Range(-30f, 30f);
         }

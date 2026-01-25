@@ -16,8 +16,12 @@ public class PixelArtEditor : EditorWindow
     private float pixelDisplaySize = 20f;
     
     // Tool selection
-    private enum Tool { Pencil, Eraser, Fill, Eyedropper }
+    private enum Tool { Pencil, Eraser, Fill, Eyedropper, SetCenter }
     private Tool currentTool = Tool.Pencil;
+    
+    // ADDED: Center point (in pixel coordinates, supports half-pixels for edges)
+    private Vector2 centerPoint;
+    private bool centerPointSet = false;
     
     // Color palette
     private Color[] palette = new Color[]
@@ -52,6 +56,10 @@ public class PixelArtEditor : EditorWindow
         {
             pixels[i] = backgroundColor;
         }
+        
+        // ADDED: Reset center to default (middle of canvas)
+        centerPoint = new Vector2(canvasSize / 2f, canvasSize / 2f);
+        centerPointSet = false;
     }
 
     private void OnGUI()
@@ -83,7 +91,25 @@ public class PixelArtEditor : EditorWindow
         if (GUILayout.Toggle(currentTool == Tool.Eraser, "Eraser", "Button")) currentTool = Tool.Eraser;
         if (GUILayout.Toggle(currentTool == Tool.Fill, "Fill", "Button")) currentTool = Tool.Fill;
         if (GUILayout.Toggle(currentTool == Tool.Eyedropper, "Eyedropper", "Button")) currentTool = Tool.Eyedropper;
+        if (GUILayout.Toggle(currentTool == Tool.SetCenter, "Set Center", "Button")) currentTool = Tool.SetCenter;
         EditorGUILayout.EndHorizontal();
+        
+        // ADDED: Center point info
+        if (centerPointSet)
+        {
+            EditorGUILayout.HelpBox($"Center Point: ({centerPoint.x:F1}, {centerPoint.y:F1})", MessageType.Info);
+        }
+        else
+        {
+            EditorGUILayout.HelpBox("Center Point: Default (middle of canvas)", MessageType.Info);
+        }
+        
+        if (GUILayout.Button("Reset Center to Default"))
+        {
+            centerPoint = new Vector2(canvasSize / 2f, canvasSize / 2f);
+            centerPointSet = false;
+            Repaint();
+        }
         
         EditorGUILayout.Space(10);
         
@@ -182,28 +208,38 @@ public class PixelArtEditor : EditorWindow
             }
         }
         
+        // ADDED: Draw center point
+        DrawCenterPoint(canvasRect);
+        
         // Handle mouse input
         if (canvasRect.Contains(e.mousePosition))
         {
-            int x = Mathf.FloorToInt((e.mousePosition.x - canvasRect.x) / pixelDisplaySize);
-            int y = canvasSize - 1 - Mathf.FloorToInt((e.mousePosition.y - canvasRect.y) / pixelDisplaySize);
-            
-            if (x >= 0 && x < canvasSize && y >= 0 && y < canvasSize)
+            if (currentTool == Tool.SetCenter)
             {
-                if (e.type == EventType.MouseDown && e.button == 0)
+                HandleCenterPointPlacement(e, canvasRect);
+            }
+            else
+            {
+                int x = Mathf.FloorToInt((e.mousePosition.x - canvasRect.x) / pixelDisplaySize);
+                int y = canvasSize - 1 - Mathf.FloorToInt((e.mousePosition.y - canvasRect.y) / pixelDisplaySize);
+                
+                if (x >= 0 && x < canvasSize && y >= 0 && y < canvasSize)
                 {
-                    isDragging = true;
-                    ApplyTool(x, y);
-                    e.Use();
-                }
-                else if (e.type == EventType.MouseDrag && isDragging)
-                {
-                    ApplyTool(x, y);
-                    e.Use();
-                }
-                else if (e.type == EventType.MouseUp)
-                {
-                    isDragging = false;
+                    if (e.type == EventType.MouseDown && e.button == 0)
+                    {
+                        isDragging = true;
+                        ApplyTool(x, y);
+                        e.Use();
+                    }
+                    else if (e.type == EventType.MouseDrag && isDragging)
+                    {
+                        ApplyTool(x, y);
+                        e.Use();
+                    }
+                    else if (e.type == EventType.MouseUp)
+                    {
+                        isDragging = false;
+                    }
                 }
             }
         }
@@ -211,6 +247,46 @@ public class PixelArtEditor : EditorWindow
         if (e.type == EventType.MouseUp)
         {
             isDragging = false;
+        }
+    }
+
+    // ADDED: Draw center point crosshair
+    private void DrawCenterPoint(Rect canvasRect)
+    {
+        // Convert center point to screen coordinates
+        float screenX = canvasRect.x + centerPoint.x * pixelDisplaySize;
+        float screenY = canvasRect.y + (canvasSize - centerPoint.y) * pixelDisplaySize;
+        
+        // Draw crosshair
+        Handles.color = centerPointSet ? Color.yellow : Color.cyan;
+        float crossSize = 10f;
+        Handles.DrawLine(new Vector3(screenX - crossSize, screenY, 0), new Vector3(screenX + crossSize, screenY, 0));
+        Handles.DrawLine(new Vector3(screenX, screenY - crossSize, 0), new Vector3(screenX, screenY + crossSize, 0));
+        
+        // Draw circle
+        Handles.DrawWireDisc(new Vector3(screenX, screenY, 0), Vector3.forward, 5f);
+    }
+
+    // ADDED: Handle center point placement with snapping
+    private void HandleCenterPointPlacement(Event e, Rect canvasRect)
+    {
+        if (e.type == EventType.MouseDown && e.button == 0)
+        {
+            // Get mouse position relative to canvas
+            float relX = (e.mousePosition.x - canvasRect.x) / pixelDisplaySize;
+            float relY = canvasSize - (e.mousePosition.y - canvasRect.y) / pixelDisplaySize;
+            
+            // Snap to nearest half-pixel (allows edges and centers)
+            centerPoint.x = Mathf.Round(relX * 2f) / 2f;
+            centerPoint.y = Mathf.Round(relY * 2f) / 2f;
+            
+            // Clamp to canvas bounds
+            centerPoint.x = Mathf.Clamp(centerPoint.x, 0f, canvasSize);
+            centerPoint.y = Mathf.Clamp(centerPoint.y, 0f, canvasSize);
+            
+            centerPointSet = true;
+            e.Use();
+            Repaint();
         }
     }
 
@@ -267,18 +343,88 @@ public class PixelArtEditor : EditorWindow
             return;
         }
         
-        // Create texture
-        Texture2D texture = new Texture2D(canvasSize, canvasSize)
-        {
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp
-        };
+        // EDITED: Calculate bounding box and recenter based on center point
+        int minX = canvasSize, maxX = 0, minY = canvasSize, maxY = 0;
+        bool hasPixels = false;
         
         for (int y = 0; y < canvasSize; y++)
         {
             for (int x = 0; x < canvasSize; x++)
             {
-                texture.SetPixel(x, y, pixels[y * canvasSize + x]);
+                if (pixels[y * canvasSize + x].a > 0.1f)
+                {
+                    hasPixels = true;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        
+        if (!hasPixels)
+        {
+            EditorUtility.DisplayDialog("Error", "Canvas is empty!", "OK");
+            return;
+        }
+        
+        // ADDED: Calculate how much to expand around center point
+        float centerX = centerPointSet ? centerPoint.x : canvasSize / 2f;
+        float centerY = centerPointSet ? centerPoint.y : canvasSize / 2f;
+        
+        // Distance from center to edges of bounding box
+        float leftDist = centerX - minX;
+        float rightDist = maxX - centerX;
+        float bottomDist = centerY - minY;
+        float topDist = maxY - centerY;
+        
+        // New size is 2 * max distance in each direction
+        int newWidth = Mathf.CeilToInt(2f * Mathf.Max(leftDist, rightDist));
+        int newHeight = Mathf.CeilToInt(2f * Mathf.Max(bottomDist, topDist));
+        
+        // Ensure even dimensions (better for centering)
+        if (newWidth % 2 != 0) newWidth++;
+        if (newHeight % 2 != 0) newHeight++;
+        
+        // Create new centered texture
+        Texture2D texture = new Texture2D(newWidth, newHeight)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp
+        };
+        
+        // Fill with transparent
+        Color[] newPixels = new Color[newWidth * newHeight];
+        for (int i = 0; i < newPixels.Length; i++)
+        {
+            newPixels[i] = Color.clear;
+        }
+        
+        // Calculate offset to center the sprite
+        int offsetX = Mathf.FloorToInt(newWidth / 2f - centerX);
+        int offsetY = Mathf.FloorToInt(newHeight / 2f - centerY);
+        
+        // Copy pixels with offset
+        for (int y = 0; y < canvasSize; y++)
+        {
+            for (int x = 0; x < canvasSize; x++)
+            {
+                int newX = x + offsetX;
+                int newY = y + offsetY;
+                
+                if (newX >= 0 && newX < newWidth && newY >= 0 && newY < newHeight)
+                {
+                    newPixels[newY * newWidth + newX] = pixels[y * canvasSize + x];
+                }
+            }
+        }
+        
+        // Apply pixels to texture
+        for (int y = 0; y < newHeight; y++)
+        {
+            for (int x = 0; x < newWidth; x++)
+            {
+                texture.SetPixel(x, y, newPixels[y * newWidth + x]);
             }
         }
         texture.Apply();
@@ -304,11 +450,11 @@ public class PixelArtEditor : EditorWindow
             importer.spritePixelsPerUnit = Utility.GLOBAL_PPU;
             importer.filterMode = FilterMode.Point;
             importer.textureCompression = TextureImporterCompression.Uncompressed;
-            importer.isReadable = true; // CRITICAL: Allow reading pixels at runtime
+            importer.isReadable = true;
             importer.SaveAndReimport();
         }
         
-        EditorUtility.DisplayDialog("Success", $"Sprite '{spriteName}' saved to {path}", "OK");
+        EditorUtility.DisplayDialog("Success", $"Sprite '{spriteName}' saved!\nSize: {newWidth}x{newHeight}\nCentered at: ({centerX:F1}, {centerY:F1})", "OK");
     }
 
     private void LoadSprite()
@@ -323,16 +469,24 @@ public class PixelArtEditor : EditorWindow
         // Resize canvas if needed
         if (texture.width != canvasSize || texture.height != canvasSize)
         {
-            canvasSize = texture.width;
+            canvasSize = Mathf.Max(texture.width, texture.height);
             InitializeCanvas();
         }
         
-        // Load pixels
-        for (int y = 0; y < canvasSize; y++)
+        // Load pixels (centered if texture is smaller than canvas)
+        int offsetX = (canvasSize - texture.width) / 2;
+        int offsetY = (canvasSize - texture.height) / 2;
+        
+        for (int y = 0; y < texture.height; y++)
         {
-            for (int x = 0; x < canvasSize; x++)
+            for (int x = 0; x < texture.width; x++)
             {
-                pixels[y * canvasSize + x] = texture.GetPixel(x, y);
+                int canvasX = x + offsetX;
+                int canvasY = y + offsetY;
+                if (canvasX >= 0 && canvasX < canvasSize && canvasY >= 0 && canvasY < canvasSize)
+                {
+                    pixels[canvasY * canvasSize + canvasX] = texture.GetPixel(x, y);
+                }
             }
         }
         

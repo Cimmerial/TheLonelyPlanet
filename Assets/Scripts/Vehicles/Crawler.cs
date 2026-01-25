@@ -1,101 +1,138 @@
-
+// Assets/Scripts/Vehicles/Crawler.cs
 using UnityEngine;
 
 /// <summary>
 /// Ground vehicle that moves along planet surfaces
+/// Uses Dynamic rigidbody like asteroids - no kinematic switching
 /// </summary>
 public class Crawler : Vehicle
 {
     [Header("Crawler Settings")]
-    [SerializeField] private float movementForce = 100f;
+    [SerializeField] private float movementSpeed = 2f;
     [SerializeField] private float maxSpeed = 3f;
     [SerializeField] private bool usePlayerInput = true;
-    
+
     [Header("Placement Helpers")]
     [SerializeField] private bool placeOnPlanetOnStart = true;
-    [SerializeField] private float hoverHeight = 0.2f; // Height above surface to spawn
-    
+    [SerializeField] private float hoverHeight = 0.0f;
+    [Header("Grounding Detection")]
+[SerializeField] private float groundCheckDistance = 2f; 
+
     private float moveInput = 0f;
-    
+
     protected override void Start()
     {
         base.Start();
-        
+
         if (placeOnPlanetOnStart)
         {
             PlaceOnNearestPlanet();
         }
     }
+
+// Assets/Scripts/Vehicles/Crawler.cs
+
+protected override void UpdateVehiclePhysics()
+{
+    if (!usePlayerInput) return;
+
+    moveInput = Input.GetAxis("Horizontal");
     
-    protected override void UpdateVehiclePhysics()
+    // EDITED: Use raycast-based grounding check
+    bool isGrounded = CheckGroundedSimple(); // EDITED
+    
+    if (Mathf.Abs(moveInput) > 0.01f)
     {
-        if (!usePlayerInput) return;
-        
-        // Get input
-        moveInput = Input.GetAxis("Horizontal");
-        
-        // Always maintain orientation, but only move when grounded
-        MaintainOrientation();
-        
-        if (atmosphericPhysics != null && atmosphericPhysics.IsGrounded && Mathf.Abs(moveInput) > 0.01f)
-        {
-            ApplyMovement();
-        }
+        Debug.Log($"[{gameObject.name}] Input: {moveInput}, Grounded: {isGrounded}");
+    }
+
+    // Only move when grounded
+    if (isGrounded && Mathf.Abs(moveInput) > 0.01f)
+    {
+        Debug.Log($"[{gameObject.name}] Applying movement force!");
+        ApplyDynamicMovement();
+    }
+}
+
+// ADDED: Simple raycast-based grounding check
+private bool CheckGroundedSimple()
+{
+    Planet planet = atmosphericPhysics?.FindNearestPlanet();
+    if (planet == null) return false;
+    
+    // Calculate distance from planet surface
+    Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
+    float distanceFromCenter = toPlanet.magnitude;
+    float planetRadius = planet.GetRadius();
+    float distanceFromSurface = distanceFromCenter - planetRadius;
+    
+    // Convert pixel threshold to world units
+    float groundCheckWorld = groundCheckDistance / Utility.GLOBAL_PPU;
+    
+    bool grounded = distanceFromSurface <= groundCheckWorld;
+    
+    // Debug visualization
+    if (grounded)
+    {
+        Debug.DrawLine(transform.position, planet.transform.position, Color.green);
     }
     
-    private void ApplyMovement()
+    return grounded;
+}
+
+private void ApplyDynamicMovement()
+{
+    Planet planet = atmosphericPhysics.FindNearestPlanet();
+    if (planet == null)
     {
-        // Get the planet we're on
-        Planet planet = atmosphericPhysics.FindNearestPlanet();
-        if (planet == null) return;
-        
-        // Calculate movement direction
-        // Right input = clockwise around planet
-        // Left input = counterclockwise around planet
-        Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
-        Vector2 tangent = new Vector2(-toPlanet.y, toPlanet.x).normalized;
-        
-        // Apply movement force (moveInput is already -1 to 1)
-        Vector2 moveDirection = tangent * moveInput;
-        
-        // Check speed limit (relative to surface)
-        Vector2 relativeVelocity = atmosphericPhysics.GetRelativeVelocity();
-        float currentSpeed = Vector2.Dot(relativeVelocity, tangent.normalized);
-        
-        // Only apply force if under max speed in that direction
-        if ((moveInput > 0 && currentSpeed < maxSpeed) || (moveInput < 0 && currentSpeed > -maxSpeed))
-        {
-            rb.AddForce(moveDirection * movementForce, ForceMode2D.Force);
-        }
-        
-        // Debug visualization
-        Debug.DrawRay(transform.position, moveDirection * 0.5f, Color.yellow);
+        Debug.LogWarning($"[{gameObject.name}] No planet found for movement!");
+        return;
     }
+
+    // Calculate movement direction (tangent to planet surface)
+    Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
+    Vector2 tangent = new Vector2(-toPlanet.y, toPlanet.x).normalized;
+
+    // Flip sprite based on movement direction
+    if (vehicleSpriteRenderer != null)
+    {
+        if (moveInput > 0.01f)
+        {
+            vehicleSpriteRenderer.flipX = false;
+        }
+        else if (moveInput < -0.01f)
+        {
+            vehicleSpriteRenderer.flipX = true;
+        }
+    }
+
+    // Apply force along the surface tangent (amplify/diminish planet rotation)
+    Vector2 moveForce = tangent * moveInput * movementSpeed * rb.mass;
+    rb.AddForce(moveForce, ForceMode2D.Force);
     
+    Debug.Log($"[{gameObject.name}] Applied force: {moveForce}, tangent: {tangent}, moveInput: {moveInput}");
+
+    // Debug visualization
+    Debug.DrawRay(transform.position, tangent * moveInput * 0.5f, Color.yellow);
+}
+
     private void MaintainOrientation()
     {
-        // Keep crawler upright relative to nearest planet
         Planet planet = atmosphericPhysics.FindNearestPlanet();
         if (planet == null) return;
-        
+
         Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
         float targetAngle = Mathf.Atan2(toPlanet.y, toPlanet.x) * Mathf.Rad2Deg + 90f;
-        
+
         float currentAngle = rb.rotation;
         float angleDiff = Mathf.DeltaAngle(currentAngle, targetAngle);
-        
-        // Strong corrective torque to maintain upright orientation
-        float torqueStrength = atmosphericPhysics.IsGrounded ? 200f : 100f;
-        float torque = angleDiff * torqueStrength;
+
+        // Always use torque (no more kinematic mode)
+        float torque = angleDiff * 100f;
         rb.AddTorque(torque, ForceMode2D.Force);
-        
-        // Strong damping to prevent wobble
-        rb.angularVelocity *= 0.7f;
+        rb.angularVelocity *= 0.85f;
     }
-    
-    /// <summary>
-    /// Place vehicle on the nearest planet surface with correct orientation
-    /// </summary>
+
     [ContextMenu("Place On Nearest Planet")]
     public void PlaceOnNearestPlanet()
     {
@@ -105,67 +142,91 @@ public class Crawler : Vehicle
             Debug.LogWarning("No planet found to place vehicle on");
             return;
         }
-        
-        // Calculate position just above planet surface
-        Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
+
+        Vector2 currentPos = transform.position;
+        Vector2 toPlanet = (Vector2)planet.transform.position - currentPos;
         Vector2 directionFromPlanet = -toPlanet.normalized;
-        
+
         float planetRadius = planet.GetRadius();
         Vector2 surfacePosition = (Vector2)planet.transform.position + directionFromPlanet * planetRadius;
         Vector2 spawnPosition = surfacePosition + directionFromPlanet * hoverHeight;
-        
+
         transform.position = spawnPosition;
-        
-        // Set correct rotation (perpendicular to surface, pointing away from planet)
+
         float angle = Mathf.Atan2(directionFromPlanet.y, directionFromPlanet.x) * Mathf.Rad2Deg - 90f;
         transform.rotation = Quaternion.Euler(0, 0, angle);
-        
-        // Reset velocities
-        if (rb != null)
+
+        // Always Dynamic (no more kinematic)
+        rb.bodyType = RigidbodyType2D.Dynamic;
+        rb.rotation = angle;
+
+        if (atmosphericPhysics != null)
         {
-            rb.velocity = Vector2.zero;
+            Vector2 atmosphericVelocity = atmosphericPhysics.CalculateAtmosphericVelocityFor(planet);
+            rb.velocity = atmosphericVelocity;
             rb.angularVelocity = 0f;
+            rb.WakeUp();
         }
-        
-        Debug.Log($"Placed {gameObject.name} on {planet.name} at {spawnPosition}");
+
+        Debug.Log($"Placed {gameObject.name} on {planet.name}");
     }
-    
-    /// <summary>
-    /// Set movement programmatically (for AI or other control)
-    /// </summary>
+
     public void SetMoveInput(float input)
     {
         moveInput = Mathf.Clamp(input, -1f, 1f);
     }
-    
+
+    protected override void OnCollisionEnter2D(Collision2D collision)
+    {
+        base.OnCollisionEnter2D(collision);
+        // Base class handles atmosphericPhysics grounding tracking
+    }
+
+    private void Update()
+    {
+        // Debug info
+        if (Input.GetKeyDown(KeyCode.G))
+        {
+            Planet planet = atmosphericPhysics?.FindNearestPlanet();
+            float currentDist = planet != null ?
+                Vector2.Distance(transform.position, planet.transform.position) : -1f;
+
+            Debug.Log($"[{gameObject.name}] " +
+                      $"Grounded: {atmosphericPhysics?.IsGrounded}, " +
+                      $"RB Type: {rb?.bodyType}, " +
+                      $"Velocity: {rb?.velocity.magnitude:F2}, " +
+                      $"AngularVel: {rb?.angularVelocity:F2}, " +
+                      $"Mass: {rb?.mass:F2}, " +
+                      $"Drag: {rb?.drag:F2}, " +
+                      $"Distance: {currentDist:F3}, " +
+                      $"MoveInput: {moveInput}");
+        }
+    }
+
     private void OnDrawGizmos()
     {
-        if (atmosphericPhysics == null) return;
-        
         // Draw grounded status
-        Gizmos.color = atmosphericPhysics.IsGrounded ? Color.green : Color.red;
-        Gizmos.DrawWireSphere(transform.position, 0.15f);
-        
-        // Draw movement direction when grounded
-        if (atmosphericPhysics.IsGrounded)
+        if (atmosphericPhysics != null)
         {
-            Planet planet = atmosphericPhysics.FindNearestPlanet();
-            if (planet != null)
-            {
-                Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
-                Vector2 tangent = new Vector2(-toPlanet.y, toPlanet.x).normalized;
-                
-                // Draw tangent direction (movement direction)
-                Gizmos.color = Color.yellow;
-                Gizmos.DrawLine(transform.position, (Vector2)transform.position + tangent * 0.5f);
-                
-                Gizmos.color = Color.cyan;
-                Gizmos.DrawLine(transform.position, (Vector2)transform.position - tangent * 0.5f);
-                
-                // Draw up direction (should point away from planet)
-                Gizmos.color = Color.green;
-                Gizmos.DrawLine(transform.position, (Vector2)transform.position + (Vector2)transform.up * 0.3f);
-            }
+            Gizmos.color = atmosphericPhysics.IsGrounded ? Color.green : Color.red;
+            Gizmos.DrawWireSphere(transform.position, 0.15f);
+        }
+
+        // Draw movement direction when grounded
+        Planet planet = atmosphericPhysics?.FindNearestPlanet();
+        if (planet != null && atmosphericPhysics != null && atmosphericPhysics.IsGrounded)
+        {
+            Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
+            Vector2 tangent = new Vector2(-toPlanet.y, toPlanet.x).normalized;
+
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawLine(transform.position, (Vector2)transform.position + tangent * 0.5f);
+
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawLine(transform.position, (Vector2)transform.position - tangent * 0.5f);
+
+            Gizmos.color = Color.green;
+            Gizmos.DrawLine(transform.position, (Vector2)transform.position + (Vector2)transform.up * 0.3f);
         }
     }
 }

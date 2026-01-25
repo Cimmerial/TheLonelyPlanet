@@ -163,7 +163,7 @@ public class PlanetGenerator
         GameObject planetColliderChild = new(name);
         planetColliderChild.transform.SetParent(planet.gameObject.transform);
         CircleCollider2D planetCollider = planetColliderChild.AddComponent<CircleCollider2D>();
-        planetCollider.radius = radius - .01f; // Slightly smaller to avoid edge issues
+        planetCollider.radius = radius - .005f; // Slightly smaller to avoid edge issues
         planetCollider.sharedMaterial = Utility.GetFrictionMaterial(); // Add friction material
         planetColliderChild.transform.position = planet.transform.position;
 
