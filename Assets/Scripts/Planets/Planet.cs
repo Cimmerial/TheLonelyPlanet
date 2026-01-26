@@ -39,7 +39,7 @@ public class Planet : MonoBehaviour, IBigGravity
         Gizmos.DrawWireSphere(transform.position, maxInfluenceRadius);
     }
 
-    void Awake()
+    protected virtual void Awake()
     {
         // If seed is 0, generate random seed
         if (randomSeed == 0)

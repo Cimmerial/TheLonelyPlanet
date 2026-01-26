@@ -168,7 +168,7 @@ private void UpdateCamera()
                 float spriteSize = GetVehicleSpriteSize(lockedVehicle);
                 targetZoom = spriteSize / vehicleZoomRatio;
                 
-                Debug.Log($"Vehicle sprite size: {spriteSize}px, ratio: {vehicleZoomRatio}, targetZoom: {targetZoom}");
+                // Debug.Log($"Vehicle sprite size: {spriteSize}px, ratio: {vehicleZoomRatio}, targetZoom: {targetZoom}");
             }
             else
             {
@@ -246,7 +246,6 @@ private float GetVehicleSpriteSize(Vehicle vehicle)
     { // EDITED
         // EDITED: Return the max dimension of the sprite in pixels
         float maxPixels = Mathf.Max(sr.sprite.texture.width, sr.sprite.texture.height); // EDITED
-        Debug.Log($"Sprite texture size: {sr.sprite.texture.width}x{sr.sprite.texture.height}, max: {maxPixels}"); // EDITED
         return maxPixels; // EDITED
     } // EDITED
     

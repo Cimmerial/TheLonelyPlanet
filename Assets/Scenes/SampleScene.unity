@@ -282,7 +282,6 @@ MonoBehaviour:
   atmosphericPhysics: {fileID: 0}
   totalMass: 0
   movementSpeed: 2
-  maxSpeed: 5
   usePlayerInput: 1
   placeOnPlanetOnStart: 1
   hoverHeight: 0.05
@@ -410,10 +409,76 @@ MonoBehaviour:
   freeMoveSpeed: 8
   freeZoomSpeed: 4
   followSmoothness: 5
+  matchRotation: 0
   planetZoomRatio: 150
   vehicleZoomRatio: 20
   uiCanvas: {fileID: 0}
   statusText: {fileID: 0}
+--- !u!1 &600485843
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 600485845}
+  - component: {fileID: 600485844}
+  m_Layer: 0
+  m_Name: Moon
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &600485844
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 600485843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: aa6cc5788f2ae44579b313eedc11a615, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  radius: 50
+  atmosphereRadius: 15
+  naturalRotationSpeed: 3
+  massPerPixel: 1
+  shapeVariation: 0
+  noiseScale: 2
+  randomSeed: 0
+  colliderSimplification: 3
+  planetSpriteRenderer: {fileID: 0}
+  atmosphereSpriteRenderer: {fileID: 0}
+  planetCollider: {fileID: 0}
+  planetRB: {fileID: 0}
+  totalMass: 0
+  surfaceGravity: 0
+  maxInfluenceRadius: 0
+  parentPlanet: {fileID: 193548411}
+  orbitalRadiusFromSurface: 300
+  orbitalSpeed: 3
+  startingAngle: 0
+  canBreakOrbit: 0
+  orbitBreakThreshold: 10000
+--- !u!4 &600485845
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 600485843}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 2.09, y: -0.02, z: -0.24838938}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1023270819
 GameObject:
   m_ObjectHideFlags: 0
@@ -719,6 +784,65 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1672745404
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1672745406}
+  - component: {fileID: 1672745405}
+  m_Layer: 6
+  m_Name: TheLonelyPlanet (Home) (1)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1672745405
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1672745404}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7dba9990902e543769cb2b72ee78b3ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  radius: 1000
+  atmosphereRadius: 100
+  naturalRotationSpeed: 1
+  massPerPixel: 1
+  shapeVariation: 0
+  noiseScale: 2
+  randomSeed: 0
+  colliderSimplification: 1
+  planetSpriteRenderer: {fileID: 0}
+  atmosphereSpriteRenderer: {fileID: 0}
+  planetCollider: {fileID: 0}
+  planetRB: {fileID: 0}
+  totalMass: 0
+  surfaceGravity: 0
+  maxInfluenceRadius: 0
+--- !u!4 &1672745406
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1672745404}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -3.24, y: 8.26, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1739855853
 GameObject:
   m_ObjectHideFlags: 0
@@ -729,8 +853,9 @@ GameObject:
   m_Component:
   - component: {fileID: 1739855855}
   - component: {fileID: 1739855854}
+  - component: {fileID: 1739855856}
   m_Layer: 0
-  m_Name: Asteroid (3)
+  m_Name: Orbiting Asteroid
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -783,12 +908,38 @@ Transform:
   m_GameObject: {fileID: 1739855853}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1.133, y: 0.545, z: -0.22249986}
+  m_LocalPosition: {x: 1.165, y: 0.594, z: -0.22249986}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1739855856
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1739855853}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3f2497d72a5c4031af1df7c20463fd3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  orbitTarget: {fileID: 193548410}
+  orbitalRadiusFromSurface: 50
+  useRealisticSpeed: 1
+  orbitalSpeed: 35
+  startingAngle: 0
+  forceThreshold: 10
+  autoReRail: 0
+  reRailThreshold: 10
+  correctionStrength: 100
+  velocityLerpSpeed: 0.1
+  useStrictRails: 0
+  isRailed: 1
+  currentAngle: 0
+  externalForceThisFrame: 0
 --- !u!1 &2076579092
 GameObject:
   m_ObjectHideFlags: 0
@@ -859,12 +1010,81 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2110708647
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2110708649}
+  - component: {fileID: 2110708648}
+  m_Layer: 0
+  m_Name: GravityGizmos
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &2110708648
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2110708647}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7930cf661a5f4d188c6f13f22fd7012, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  showOrbitalPaths: 1
+  showInfluenceRings: 1
+  showGravityArrows: 1
+  showVelocityArrows: 1
+  showIdealVelocityArrows: 1
+  showForceThresholds: 0
+  showAlignmentWarnings: 1
+  showIndividualGravitySources: 0
+  showCurrentVelocityDebug: 0
+  showObjectOutlines: 1
+  orbitalPathSegments: 64
+  colorPathByGravity: 1
+  maxGravityForColor: 50
+  ringCount: 10
+  showRingLabels: 1
+  arrowScale: 1
+  velocityArrowScale: 0.1
+  arrowHeadSize: 0.3
+  alignmentThreshold: 0.95
+  showAlignmentGravity: 1
+  fontSize: 8
+  barHeight: 0.2
+  barOffsetFromObject: 1
+--- !u!4 &2110708649
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2110708647}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.7973304, y: -0.33632448, z: -0.25230658}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
   - {fileID: 1535845244}
   - {fileID: 193548410}
+  - {fileID: 1672745406}
+  - {fileID: 600485845}
   - {fileID: 1575278617}
   - {fileID: 1478766762}
   - {fileID: 1739855855}
@@ -876,3 +1096,4 @@ SceneRoots:
   - {fileID: 355723917}
   - {fileID: 259536642}
   - {fileID: 519420032}
+  - {fileID: 2110708649}

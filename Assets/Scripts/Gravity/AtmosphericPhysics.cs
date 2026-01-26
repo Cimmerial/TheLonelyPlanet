@@ -72,77 +72,77 @@ public class AtmosphericPhysics : MonoBehaviour
     /// Apply atmospheric physics in FixedUpdate
     /// </summary>
     public void ApplyAtmosphericPhysics(bool applyGravity = true)
+{
+    if (rb == null) return;
+    
+    // Don't apply physics to kinematic bodies - they handle their own movement
+    if (rb.bodyType == RigidbodyType2D.Kinematic)
     {
-        if (rb == null) return;
+        return;
+    }
+    
+    Planet nearestPlanet = FindNearestPlanet();
+    bool isInAtmosphere = nearestPlanet != null && CheckIfInAtmosphereOf(nearestPlanet);
+    bool grounded = IsGrounded;
+    
+    // Track atmosphere entry time
+    if (isInAtmosphere && atmosphereEntryTime < 0f)
+    {
+        atmosphereEntryTime = Time.time;
+    }
+    else if (!isInAtmosphere)
+    {
+        atmosphereEntryTime = -1f;
+    }
+    
+    float timeInAtmosphere = isInAtmosphere ? (Time.time - atmosphereEntryTime) : 0f;
+    float dragRampUp = grounded ? 1f : Mathf.Clamp01(timeInAtmosphere / atmosphereDragDelay);
+    
+    if (isInAtmosphere && nearestPlanet != null)
+    {
+        Vector2 targetAtmosphericVelocity = CalculateAtmosphericVelocityFor(nearestPlanet);
         
-        // Don't apply physics to kinematic bodies - they handle their own movement
-        if (rb.bodyType == RigidbodyType2D.Kinematic)
+        if (grounded)
         {
-            return;
-        }
-        
-        Planet nearestPlanet = FindNearestPlanet();
-        bool isInAtmosphere = nearestPlanet != null && CheckIfInAtmosphereOf(nearestPlanet);
-        bool grounded = IsGrounded;
-        
-        // Track atmosphere entry time
-        if (isInAtmosphere && atmosphereEntryTime < 0f)
-        {
-            atmosphereEntryTime = Time.time;
-        }
-        else if (!isInAtmosphere)
-        {
-            atmosphereEntryTime = -1f;
-        }
-        
-        float timeInAtmosphere = isInAtmosphere ? (Time.time - atmosphereEntryTime) : 0f;
-        float dragRampUp = grounded ? 1f : Mathf.Clamp01(timeInAtmosphere / atmosphereDragDelay);
-        
-        if (isInAtmosphere && nearestPlanet != null)
-        {
-            Vector2 targetAtmosphericVelocity = CalculateAtmosphericVelocityFor(nearestPlanet);
+            // GROUNDED: Strong coupling to surface
+            Vector2 velocityDifference = targetAtmosphericVelocity - rb.velocity;
+            rb.AddForce(velocityDifference * surfaceDragStrength * rb.mass, ForceMode2D.Force);
             
-            if (grounded)
+            // Tidal locking
+            if (enableTidalLocking)
             {
-                // GROUNDED: Strong coupling to surface
-                Vector2 velocityDifference = targetAtmosphericVelocity - rb.velocity;
-                rb.AddForce(velocityDifference * surfaceDragStrength * rb.mass, ForceMode2D.Force);
-                
-                // Tidal locking
-                if (enableTidalLocking)
-                {
-                    ApplyTidalLocking(nearestPlanet);
-                }
-                
-                // Strong damping to settle and prevent bouncing
-                if (rb.velocity.magnitude < 1f)
-                {
-                    rb.velocity *= 0.95f;
-                }
-                rb.angularVelocity *= 0.9f;
+                ApplyTidalLocking(nearestPlanet);
             }
-            else
+            
+            // Strong damping to settle and prevent bouncing
+            if (rb.velocity.magnitude < 1f)
             {
-                // IN ATMOSPHERE: Gradual drag ramp-up
-                Vector2 velocityDifference = targetAtmosphericVelocity - rb.velocity;
-                float effectiveDrag = atmosphericDragStrength * dragRampUp;
-                rb.AddForce(velocityDifference * effectiveDrag * rb.mass, ForceMode2D.Force);
-                
-                // Apply gravity
-                if (applyGravity)
-                {
-                    Vector2 gravity = GravityManager.CalculateGravityAt(transform.position);
-                    rb.AddForce(gravity * rb.mass, ForceMode2D.Force);
-                }
+                rb.velocity *= 0.95f;
             }
+            rb.angularVelocity *= 0.9f;
         }
-        else if (applyGravity)
+        else
         {
-            // IN SPACE: Only gravity
-            Vector2 gravity = GravityManager.CalculateGravityAt(transform.position);
-            rb.AddForce(gravity * rb.mass, ForceMode2D.Force);
+            // IN ATMOSPHERE: Gradual drag ramp-up
+            Vector2 velocityDifference = targetAtmosphericVelocity - rb.velocity;
+            float effectiveDrag = atmosphericDragStrength * dragRampUp;
+            rb.AddForce(velocityDifference * effectiveDrag * rb.mass, ForceMode2D.Force);
+            
+            // Apply gravity - NOW PASSES gameObject PARAMETER
+            if (applyGravity)
+            {
+                Vector2 gravity = GravityManager.CalculateGravityAt(transform.position, gameObject);
+                rb.AddForce(gravity * rb.mass, ForceMode2D.Force);
+            }
         }
     }
+    else if (applyGravity)
+    {
+        // IN SPACE: Only gravity - NOW PASSES gameObject PARAMETER
+        Vector2 gravity = GravityManager.CalculateGravityAt(transform.position, gameObject);
+        rb.AddForce(gravity * rb.mass, ForceMode2D.Force);
+    }
+}
     
     /// <summary>
     /// Calculate atmospheric velocity at this position for a given planet
@@ -249,7 +249,6 @@ public class AtmosphericPhysics : MonoBehaviour
     public void OnPlanetCollisionEnter()
     {
         groundedFrames = groundedFrameThreshold;
-        Debug.Log($"[{gameObject.name}] GROUNDED - frames={groundedFrames}"); // ED
         // Debug.Log($"[{gameObject.name}] OnPlanetCollisionEnter - groundedFrames set to {groundedFrames}");
     }
     
@@ -268,7 +267,6 @@ public class AtmosphericPhysics : MonoBehaviour
     public void OnPlanetCollisionExit()
     {
         groundedFrames = 0;
-        Debug.Log($"[{gameObject.name}] UNGROUNDED"); // EDITED
         // Debug.Log($"[{gameObject.name}] OnPlanetCollisionExit - groundedFrames set to 0");
         
         // Restore some tumbling when leaving surface

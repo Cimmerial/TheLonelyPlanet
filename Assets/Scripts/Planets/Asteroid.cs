@@ -193,7 +193,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
         {
             planet = collision.gameObject.transform.parent.GetComponent<Planet>();
         }
-        
+
         if (planet != null)
         {
             atmosphericPhysics?.OnPlanetCollisionStay();
@@ -208,7 +208,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
         {
             planet = collision.gameObject.transform.parent.GetComponent<Planet>();
         }
-        
+
         if (planet != null)
         {
             atmosphericPhysics?.OnPlanetCollisionExit();
@@ -225,7 +225,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
         {
             planet = collision.gameObject.transform.parent.GetComponent<Planet>();
         }
-        
+
         // Mark as grounded
         if (planet != null)
         {
@@ -276,9 +276,26 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
 
         DealForce(impactForce, bounceDirection);
     }
+    // Assets/Scripts/Planets/Asteroid.cs - DealForce Update
+    // Find the DealForce method and replace it with this:
 
     public void DealForce(float force, Vector2? direction = null)
     {
+        // ADDED: Notify OrbitalRails if this asteroid is on rails
+        OrbitalRails rails = GetComponent<OrbitalRails>();
+        if (rails != null)
+        {
+            rails.ApplyImpactForce(force);
+
+            // If orbit was broken, don't accumulate damage (object is now free-flying)
+            if (!rails.IsRailed)
+            {
+                Debug.Log($"[{gameObject.name}] Orbit broken by {force}N impact! Asteroid is now free-flying.");
+                return;
+            }
+        }
+
+        // Original damage accumulation logic
         if (force >= breakThreshold - accumulatedForce)
         {
             accumulatedForce += force;
@@ -298,6 +315,9 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
             Fragment(excessForce, direction);
         }
     }
+
+    // No other changes needed to Asteroid.cs!
+    // The collision detection already calls DealForce, so impacts will now affect orbital rails.
 
     private void Fragment(float excessForce, Vector2? direction)
     {

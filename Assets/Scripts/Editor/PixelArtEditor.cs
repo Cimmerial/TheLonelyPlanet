@@ -457,40 +457,50 @@ public class PixelArtEditor : EditorWindow
         EditorUtility.DisplayDialog("Success", $"Sprite '{spriteName}' saved!\nSize: {newWidth}x{newHeight}\nCentered at: ({centerX:F1}, {centerY:F1})", "OK");
     }
 
-    private void LoadSprite()
+// Assets/Editor/PixelArtEditor.cs - FIXED LoadSprite method
+// Replace the existing LoadSprite method with this:
+
+private void LoadSprite()
+{
+    string path = EditorUtility.OpenFilePanel("Load Sprite", "Assets/Resources/VehicleSprites", "png");
+    if (string.IsNullOrEmpty(path)) return;
+    
+    byte[] fileData = File.ReadAllBytes(path);
+    Texture2D texture = new Texture2D(2, 2);
+    texture.filterMode = FilterMode.Point; // Important for pixel art
+    texture.LoadImage(fileData);
+    
+    // Resize canvas if needed
+    int maxDimension = Mathf.Max(texture.width, texture.height);
+    if (maxDimension > canvasSize)
     {
-        string path = EditorUtility.OpenFilePanel("Load Sprite", "Assets/Resources/VehicleSprites", "png");
-        if (string.IsNullOrEmpty(path)) return;
-        
-        byte[] fileData = File.ReadAllBytes(path);
-        Texture2D texture = new Texture2D(2, 2);
-        texture.LoadImage(fileData);
-        
-        // Resize canvas if needed
-        if (texture.width != canvasSize || texture.height != canvasSize)
+        canvasSize = Mathf.NextPowerOfTwo(maxDimension);
+        if (canvasSize > 32) canvasSize = 32; // Cap at max canvas size
+    }
+    
+    InitializeCanvas();
+    
+    // Load pixels (centered if texture is smaller than canvas)
+    int offsetX = (canvasSize - texture.width) / 2;
+    int offsetY = (canvasSize - texture.height) / 2;
+    
+    for (int y = 0; y < texture.height; y++)
+    {
+        for (int x = 0; x < texture.width; x++)
         {
-            canvasSize = Mathf.Max(texture.width, texture.height);
-            InitializeCanvas();
-        }
-        
-        // Load pixels (centered if texture is smaller than canvas)
-        int offsetX = (canvasSize - texture.width) / 2;
-        int offsetY = (canvasSize - texture.height) / 2;
-        
-        for (int y = 0; y < texture.height; y++)
-        {
-            for (int x = 0; x < texture.width; x++)
+            int canvasX = x + offsetX;
+            int canvasY = y + offsetY;
+            if (canvasX >= 0 && canvasX < canvasSize && canvasY >= 0 && canvasY < canvasSize)
             {
-                int canvasX = x + offsetX;
-                int canvasY = y + offsetY;
-                if (canvasX >= 0 && canvasX < canvasSize && canvasY >= 0 && canvasY < canvasSize)
-                {
-                    pixels[canvasY * canvasSize + canvasX] = texture.GetPixel(x, y);
-                }
+                pixels[canvasY * canvasSize + canvasX] = texture.GetPixel(x, y);
             }
         }
-        
-        spriteName = Path.GetFileNameWithoutExtension(path);
-        Repaint();
     }
+    
+    spriteName = Path.GetFileNameWithoutExtension(path);
+    
+    // CRITICAL FIX: Force repaint and GUI update
+    Repaint();
+    EditorUtility.SetDirty(this);
+}
 }
