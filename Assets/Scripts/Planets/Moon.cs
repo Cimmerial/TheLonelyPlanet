@@ -1,5 +1,6 @@
 // Assets/Scripts/Planets/Moon.cs
 using UnityEngine;
+using System.Collections.Generic;
 
 /// <summary>
 /// Moon class - inherits from Planet but orbits around a parent Planet.
@@ -101,21 +102,6 @@ public class Moon : Planet
                   $"Mass: {GetMass():F2}\n" +
                   $"Gravity at Surface: {GetSurfaceGravity():F2}\n" +
                   $"Max Influence: {GetMaxInfluenceRadius():F2}");
-    }
-    
-    // Override Update to prevent natural rotation (orbit handles rotation)
-    private void Update()
-    {
-        // Moons don't rotate on their own - they're controlled by OrbitalRails
-        // Optionally, we could add tidal locking here (rotate to face parent)
-        // For now, just do nothing
-    }
-    
-    // Override FixedUpdate to prevent rotation
-    private void FixedUpdate()
-    {
-        // Don't apply natural rotation like Planet does
-        // OrbitalRails handles all movement
     }
     
     // Helper method to get surface gravity for debugging

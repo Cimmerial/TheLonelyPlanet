@@ -10,10 +10,6 @@ public class Crawler : Vehicle
     [Header("Crawler Settings")]
     [SerializeField] private float movementSpeed = 2f;
     [SerializeField] private bool usePlayerInput = true;
-
-    [Header("Placement Helpers")]
-    [SerializeField] private bool placeOnPlanetOnStart = true;
-    [SerializeField] private float hoverHeight = 0.0f;
     [Header("Grounding Detection")]
     [SerializeField] private float groundCheckDistance = 2f;
 
@@ -22,14 +18,7 @@ public class Crawler : Vehicle
     protected override void Start()
     {
         base.Start();
-
-        if (placeOnPlanetOnStart)
-        {
-            PlaceOnNearestPlanet();
-        }
     }
-
-    // Assets/Scripts/Vehicles/Crawler.cs
 
     protected override void UpdateVehiclePhysics()
     {
@@ -40,16 +29,8 @@ public class Crawler : Vehicle
         // EDITED: Use raycast-based grounding check
         bool isGrounded = CheckGroundedSimple(); // EDITED
 
-        if (Mathf.Abs(moveInput) > 0.01f)
-        {
-            // Debug.Log($"[{gameObject.name}] Input: {moveInput}, Grounded: {isGrounded}");
-        }
-
         // Only move when grounded
-        if (isGrounded && Mathf.Abs(moveInput) > 0.01f)
-        {
-            ApplyDynamicMovement();
-        }
+        if (isGrounded && Mathf.Abs(moveInput) > 0.01f) ApplyDynamicMovement();
     }
 
     // ADDED: Simple raycast-based grounding check
@@ -114,60 +95,7 @@ public class Crawler : Vehicle
         Debug.DrawRay(transform.position, tangent * moveInput * 0.5f, Color.yellow);
     }
 
-    private void MaintainOrientation()
-    {
-        Planet planet = atmosphericPhysics.FindNearestPlanet();
-        if (planet == null) return;
 
-        Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
-        float targetAngle = Mathf.Atan2(toPlanet.y, toPlanet.x) * Mathf.Rad2Deg + 90f;
-
-        float currentAngle = rb.rotation;
-        float angleDiff = Mathf.DeltaAngle(currentAngle, targetAngle);
-
-        // Always use torque (no more kinematic mode)
-        float torque = angleDiff * 100f;
-        rb.AddTorque(torque, ForceMode2D.Force);
-        rb.angularVelocity *= 0.85f;
-    }
-
-    [ContextMenu("Place On Nearest Planet")]
-    public void PlaceOnNearestPlanet()
-    {
-        Planet planet = atmosphericPhysics?.FindNearestPlanet();
-        if (planet == null)
-        {
-            Debug.LogWarning("No planet found to place vehicle on");
-            return;
-        }
-
-        Vector2 currentPos = transform.position;
-        Vector2 toPlanet = (Vector2)planet.transform.position - currentPos;
-        Vector2 directionFromPlanet = -toPlanet.normalized;
-
-        float planetRadius = planet.GetRadius();
-        Vector2 surfacePosition = (Vector2)planet.transform.position + directionFromPlanet * planetRadius;
-        Vector2 spawnPosition = surfacePosition + directionFromPlanet * hoverHeight;
-
-        transform.position = spawnPosition;
-
-        float angle = Mathf.Atan2(directionFromPlanet.y, directionFromPlanet.x) * Mathf.Rad2Deg - 90f;
-        transform.rotation = Quaternion.Euler(0, 0, angle);
-
-        // Always Dynamic (no more kinematic)
-        rb.bodyType = RigidbodyType2D.Dynamic;
-        rb.rotation = angle;
-
-        if (atmosphericPhysics != null)
-        {
-            Vector2 atmosphericVelocity = atmosphericPhysics.CalculateAtmosphericVelocityFor(planet);
-            rb.velocity = atmosphericVelocity;
-            rb.angularVelocity = 0f;
-            rb.WakeUp();
-        }
-
-        Debug.Log($"Placed {gameObject.name} on {planet.name}");
-    }
 
     public void SetMoveInput(float input)
     {
@@ -177,7 +105,7 @@ public class Crawler : Vehicle
     protected override void OnCollisionEnter2D(Collision2D collision)
     {
         base.OnCollisionEnter2D(collision);
-        // Base class handles atmosphericPhysics grounding tracking
+        // check building/resource collisions for pickup/dropoff
     }
 
     private void Update()
