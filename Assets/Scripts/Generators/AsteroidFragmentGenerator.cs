@@ -11,7 +11,6 @@ public struct AsteroidFragmentData
 
 public class AsteroidFragmentGenerator
 {
-
     public void GenerateFragments(
     Texture2D originalTexture,
     int fragmentCount,
@@ -24,14 +23,16 @@ public class AsteroidFragmentGenerator
     float massPerPixel,
     int colliderSimplification,
     List<float> rotationBounds,
-    float toughnessMultiplier
+    float toughnessMultiplier,
+    float baseMassLossPercentage
 )
     {
         // Generate Voronoi-based fragments with retries
         List<AsteroidFragmentData> fragmentsData = FragmentAsteroid(
             originalTexture,
             fragmentCount,
-            asteroidWorldPosition
+            asteroidWorldPosition,
+            baseMassLossPercentage
         );
 
         // Calculate explosion velocity magnitude from excess force
@@ -87,7 +88,8 @@ public class AsteroidFragmentGenerator
     private List<AsteroidFragmentData> FragmentAsteroid(
         Texture2D originalTexture,
         int fragmentCount,
-        Vector2 worldPosition
+        Vector2 worldPosition,
+        float baseMassLossPercentage
     )
     {
         List<AsteroidFragmentData> fragments = new List<AsteroidFragmentData>();
@@ -123,7 +125,8 @@ public class AsteroidFragmentGenerator
                 voronoiMap,
                 i,
                 worldPosition,
-                fragments
+                fragments,
+                baseMassLossPercentage
             );
         }
 
@@ -162,12 +165,13 @@ public class AsteroidFragmentGenerator
     }
 
     private void CreateFragmentFromVoronoi(
-        Texture2D originalTexture,
-        int[,] voronoiMap,
-        int siteIndex,
-        Vector2 worldPosition,
-        List<AsteroidFragmentData> fragments
-    )
+    Texture2D originalTexture,
+    int[,] voronoiMap,
+    int siteIndex,
+    Vector2 worldPosition,
+    List<AsteroidFragmentData> fragments,
+    float baseMassLossPercentage
+)
     {
         int width = originalTexture.width;
         int height = originalTexture.height;
@@ -191,10 +195,7 @@ public class AsteroidFragmentGenerator
             }
         }
 
-        // Erode by 1 pixel
-        pixelCount = Mathf.Max(0, pixelCount - 1);
-
-        // Skip if too small (< 10 pixels)
+        // Skip if too small (< 10 pixels) - check BEFORE erosion
         if (pixelCount < 10)
         {
             Debug.Log($"Fragment {siteIndex} too small ({pixelCount} pixels), skipping");
@@ -241,6 +242,16 @@ public class AsteroidFragmentGenerator
 
         fragmentTex.Apply();
 
+        // NEW: Apply edge erosion based on baseMassLossPercentage
+        int finalPixelCount = ApplyEdgeErosion(fragmentTex, actualPixelCount, baseMassLossPercentage);
+
+        // Skip if erosion made it too small
+        if (finalPixelCount < 10)
+        {
+            Debug.Log($"Fragment {siteIndex} too small after erosion ({finalPixelCount} pixels), skipping");
+            return;
+        }
+
         // Calculate world position of fragment center
         float originalCenterX = width / 2f;
         float originalCenterY = height / 2f;
@@ -254,15 +265,123 @@ public class AsteroidFragmentGenerator
 
         Vector2 fragmentWorldPos = worldPosition + offsetInPixels / Utility.GLOBAL_PPU;
 
-        // Create fragment data
+        // Create fragment data with FINAL pixel count after erosion
         AsteroidFragmentData fragmentData = new AsteroidFragmentData
         {
             fragmentTexture = fragmentTex,
             worldPosition = fragmentWorldPos,
-            pixelCount = actualPixelCount - 1 // Erode 1 pixel for mass conservation
+            pixelCount = finalPixelCount
         };
 
         fragments.Add(fragmentData);
+    }
+
+    private int ApplyEdgeErosion(Texture2D texture, int currentPixelCount, float massLossPercentage)
+    {
+        if (massLossPercentage <= 0f)
+        {
+            return currentPixelCount;
+        }
+
+        int width = texture.width;
+        int height = texture.height;
+
+        // Calculate target number of pixels to remove
+        int pixelsToRemove = Mathf.RoundToInt(currentPixelCount * massLossPercentage);
+
+        if (pixelsToRemove <= 0)
+        {
+            return currentPixelCount;
+        }
+
+        int pixelsRemoved = 0;
+        int maxIterations = 100; // Safety limit
+        int iteration = 0;
+
+        while (pixelsRemoved < pixelsToRemove && iteration < maxIterations)
+        {
+            // Find all edge pixels
+            List<Vector2Int> edgePixels = new List<Vector2Int>();
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    Color pixel = texture.GetPixel(x, y);
+
+                    // If this pixel is opaque
+                    if (pixel.a > 0.1f)
+                    {
+                        // Check if it's an edge pixel (has at least one transparent neighbor)
+                        if (IsEdgePixel(texture, x, y))
+                        {
+                            edgePixels.Add(new Vector2Int(x, y));
+                        }
+                    }
+                }
+            }
+
+            if (edgePixels.Count == 0)
+            {
+                Debug.LogWarning($"No edge pixels found, stopped erosion at {pixelsRemoved}/{pixelsToRemove} removed");
+                break;
+            }
+
+            // Randomly remove edge pixels
+            int toRemoveThisPass = Mathf.Min(edgePixels.Count, pixelsToRemove - pixelsRemoved);
+
+            // Shuffle and take first N pixels
+            for (int i = 0; i < toRemoveThisPass; i++)
+            {
+                int randomIndex = UnityEngine.Random.Range(i, edgePixels.Count);
+                Vector2Int temp = edgePixels[i];
+                edgePixels[i] = edgePixels[randomIndex];
+                edgePixels[randomIndex] = temp;
+
+                // Remove this pixel
+                Vector2Int pixelPos = edgePixels[i];
+                texture.SetPixel(pixelPos.x, pixelPos.y, Color.clear);
+                pixelsRemoved++;
+            }
+
+            texture.Apply();
+            iteration++;
+        }
+
+        int finalPixelCount = currentPixelCount - pixelsRemoved;
+        Debug.Log($"Edge erosion: removed {pixelsRemoved}/{pixelsToRemove} pixels ({massLossPercentage:P1} mass loss)");
+
+        return finalPixelCount;
+    }
+
+    private bool IsEdgePixel(Texture2D texture, int x, int y)
+    {
+        int width = texture.width;
+        int height = texture.height;
+
+        // Check only 4 cardinal directions (up, down, left, right)
+        int[] dx = { 0, 0, -1, 1 };  // up, down, left, right
+        int[] dy = { 1, -1, 0, 0 };
+
+        for (int i = 0; i < 4; i++)
+        {
+            int nx = x + dx[i];
+            int ny = y + dy[i];
+
+            // If neighbor is out of bounds or transparent, this is an edge pixel
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height)
+            {
+                return true;
+            }
+
+            Color neighborPixel = texture.GetPixel(nx, ny);
+            if (neighborPixel.a <= 0.1f)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private GameObject SpawnFragment(
@@ -357,5 +476,5 @@ public class AsteroidFragmentGenerator
 
         return fragmentObj;
     }
-    
+
 }

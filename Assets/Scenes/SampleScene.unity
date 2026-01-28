@@ -281,10 +281,10 @@ MonoBehaviour:
   rb: {fileID: 0}
   atmosphericPhysics: {fileID: 0}
   totalMass: 0
-  movementSpeed: 2
-  usePlayerInput: 1
   placeOnPlanetOnStart: 1
   hoverHeight: 0.05
+  movementSpeed: 2
+  usePlayerInput: 1
   groundCheckDistance: 4
 --- !u!4 &355723917
 Transform:
@@ -550,6 +550,8 @@ MonoBehaviour:
   - -45
   - 45
   rotationSpeed: 0
+  baseMassLossPercentage: 0.1
+  asteroidResourceCount: 0
   asteroidSpriteRenderer: {fileID: 0}
   asteroidCollider: {fileID: 0}
   asteroidTexture: {fileID: 0}
@@ -664,6 +666,8 @@ MonoBehaviour:
   - -45
   - 45
   rotationSpeed: 0
+  baseMassLossPercentage: 0.1
+  asteroidResourceCount: 0
   asteroidSpriteRenderer: {fileID: 0}
   asteroidCollider: {fileID: 0}
   asteroidTexture: {fileID: 0}
@@ -800,7 +804,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1672745405
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -884,6 +888,8 @@ MonoBehaviour:
   - -45
   - 45
   rotationSpeed: 0
+  baseMassLossPercentage: 0.1
+  asteroidResourceCount: 0
   asteroidSpriteRenderer: {fileID: 0}
   asteroidCollider: {fileID: 0}
   asteroidTexture: {fileID: 0}
@@ -980,6 +986,8 @@ MonoBehaviour:
   - -45
   - 45
   rotationSpeed: 0
+  baseMassLossPercentage: 0.1
+  asteroidResourceCount: 0
   asteroidSpriteRenderer: {fileID: 0}
   asteroidCollider: {fileID: 0}
   asteroidTexture: {fileID: 0}

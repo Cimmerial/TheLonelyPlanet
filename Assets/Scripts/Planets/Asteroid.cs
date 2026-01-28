@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
+public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, IBreakable
 {
     [Header("Asteroid Generation")]
     [SerializeField] private Vector2 maxDimensions = new Vector2(20f, 20f);
@@ -15,6 +15,9 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
     [SerializeField] private int colliderSimplification = 3;
     [SerializeField] private List<float> startingRotationSpeedBounds = new() { -90, 90 };
     [SerializeField] private float rotationSpeed = 0f;
+    [SerializeField] private float baseMassLossPercentage = 0.1f;
+    [SerializeField] private Dictionary<float, ResourceEnum> asteroidComposition = new();
+    [SerializeField] private int asteroidResourceCount = 0;
 
     [Header("Asteroid Components")]
     [SerializeField] private SpriteRenderer asteroidSpriteRenderer;
@@ -30,7 +33,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
     [SerializeField] private float atomizeThreshold;
     [SerializeField] private bool isFragment = false;
 
-    // IAtmosphericObject implementation - delegate to AtmosphericPhysics
+
     public Vector2 GetRelativeVelocity() => atmosphericPhysics?.GetRelativeVelocity() ?? Vector2.zero;
     public Vector2 GetPosition() => transform.position;
     public bool IsInAtmosphere() => atmosphericPhysics?.IsInAtmosphere ?? false;
@@ -274,14 +277,23 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
             return;
         }
 
-        DealForce(impactForce, bounceDirection);
+        DealForce(
+            new DealForceData
+            {
+                forceAmount = impactForce,
+                forceDirection = bounceDirection,
+                forceReturnEfficiencyPercentage = 0,
+            }
+        );
     }
-    // Assets/Scripts/Planets/Asteroid.cs - DealForce Update
-    // Find the DealForce method and replace it with this:
 
-    public void DealForce(float force, Vector2? direction = null)
+    public BrokenResourceData TakeForceDamage(DealForceData data) => DealForce(data);
+
+    public BrokenResourceData DealForce(DealForceData data)
     {
         // ADDED: Notify OrbitalRails if this asteroid is on rails
+        float force = data.forceAmount;
+        Vector2 direction = data.forceDirection;
         OrbitalRails rails = GetComponent<OrbitalRails>();
         if (rails != null)
         {
@@ -291,19 +303,13 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
             if (!rails.IsRailed)
             {
                 Debug.Log($"[{gameObject.name}] Orbit broken by {force}N impact! Asteroid is now free-flying.");
-                return;
+                return null;
             }
         }
 
         // Original damage accumulation logic
-        if (force >= breakThreshold - accumulatedForce)
-        {
-            accumulatedForce += force;
-        }
-        else
-        {
-            accumulatedForce += force * 0.5f;
-        }
+        if (force >= breakThreshold - accumulatedForce) accumulatedForce += force;
+        else accumulatedForce += force * 0.5f;
 
         Debug.Log($"Asteroid took {force}N force. Accumulated: {accumulatedForce}/{breakThreshold}N");
 
@@ -312,22 +318,21 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
         if (accumulatedForce >= breakThreshold)
         {
             float excessForce = accumulatedForce - breakThreshold;
-            Fragment(excessForce, direction);
+            return Fragment(excessForce, data);
         }
+        return null;
     }
 
-    // No other changes needed to Asteroid.cs!
-    // The collision detection already calls DealForce, so impacts will now affect orbital rails.
-
-    private void Fragment(float excessForce, Vector2? direction)
+    private BrokenResourceData Fragment(float excessForce, DealForceData data)
     {
         float currentTotalForce = breakThreshold + excessForce;
+        Vector3 direction = data.forceDirection.normalized; // normalized for now
 
         if (currentTotalForce >= atomizeThreshold)
         {
             Debug.Log($"Asteroid atomized! Total force {currentTotalForce}N exceeded threshold {atomizeThreshold}N");
             Destroy(gameObject);
-            return;
+            return null; // TODO: return resources, hmm or not.
         }
 
         float forcePercent = (excessForce / breakThreshold) * 100f;
@@ -335,6 +340,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
         int baseFragments = UnityEngine.Random.Range(2, 4);
         int bonusFragments = Mathf.FloorToInt(forcePercent / 20f);
         int fragmentCount = baseFragments + bonusFragments;
+        float massReductionPercentage = baseMassLossPercentage + (Mathf.FloorToInt(forcePercent / 20f) * 0.01f);
 
         Debug.Log($"Breaking into {fragmentCount} fragments (Excess: {forcePercent:F1}%)");
 
@@ -351,10 +357,37 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject
             massPerPixel,
             colliderSimplification,
             startingRotationSpeedBounds,
-            toughnessMultiplier
+            toughnessMultiplier,
+            massReductionPercentage
         );
 
         Destroy(gameObject);
+
+        return new BrokenResourceData
+        {
+            brokenResources = ResourcesFromFragmentedAsteroid(massReductionPercentage, data),
+        };
+    }
+
+    private List<ResourceEnum> ResourcesFromFragmentedAsteroid(float percentage, DealForceData data)
+    {
+        if (data.forceReturnEfficiencyPercentage == 0) return null;
+
+        List<ResourceEnum> fragmentedResources = new List<ResourceEnum>();
+
+        float totalToExtract = asteroidResourceCount * percentage * data.forceReturnEfficiencyPercentage;
+
+        foreach (var entry in asteroidComposition)
+        {
+            float resourceRatio = entry.Key;
+            ResourceEnum resourceEnumData = entry.Value;
+
+            int amountToAdd = Mathf.FloorToInt(totalToExtract * resourceRatio);
+
+            for (int i = 0; i < amountToAdd; i++) fragmentedResources.Add(resourceEnumData);
+        }
+
+        return fragmentedResources;
     }
 
     void OnDrawGizmos()

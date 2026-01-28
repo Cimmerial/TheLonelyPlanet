@@ -71,13 +71,11 @@
 - Fishing somehow? water planets? where they are literally just like a ball of water?
 - Should try and add vehicles next? just a basic rover first, then something. which can exit the atmosphere.
 - Need to fix it where when fragmenting asteroids sometimes, it lags the game tf out. Need to find out why and remedy it.
-
 - The Drain
 
 ### SUN 1.25.26
 - Ok need to make it so skiff must be upright in order to properly function.ie, down matches down to at least a 45deg. Otherwise you need to use stabilizers or smth to make it work.
 - Piexe
-
 - Need to plot out how asteroid belts are going to work. like we need things to stay in orbit, or in a path like we need to lock them there... hmm.
 
 - Need an asteroid river, ie constant stream of them in and out of the galaxy, like a U around the main star. hmm.
@@ -123,3 +121,20 @@
     - Types: Diggers/Borers, Grabbers, Pushers, Carriers (storage), Grapplers, Sensors (detect objects/changes near/far from vehicle), Spotters (detect ley lines), Shooters, Voider (ejects unwanted resources from vehicle), Booster (engines), Sailor (light sails), Loader (unloading and loading resources near instantly), Collector (collects vapors/gasses/liquids from atmospheres), Charger (solar panel), Shielder, 
 - Can have capacity of ships being full inc the mass.
 - Some vehicles have built in components like floaters usually have sensors on them already as well as chargers.
+
+### TUE 1.27.26
+- In order to keep the processing power lean, we will need to pull a page from rainworld and only simulate the galaxy the player is actually in. Otherwise we just say ok this solar panel has direct sunlight at distance XYZ 40% of the time, so it generated this much energy:. Hmm but like a ship collecting asteroids gets more complicated as that is a physics sim but it will break if we sim it normally if player goes back and forth, and wonders why their ship is always in same spot or never has asteroid in tow. We need a more complex sim for each step and then avg step times and from there we can simulate steps and just tp it to the 'step' it is carrying out when i need to load the galaxy. We can even load an asteroid in tow or smth if need be. Thatll be a fun puzzle.
+- Allow for making new page which is child of current page. Sort alphabetically.
+- ok and a reccuring issue i have is when i highlight a word then right click it to link it to an existing page, when i click on an existing page which matches similarly enough, it doesnt link the word. past fixes ive tried have resulted in breaking the highlighting and create page features (making it so that when linking a word it duplicates text or moves it around), all i want is for us to take the code where i can highlight and create a new page from that word, and instead of making a new page then flawlessly linking, just link immeidately. its that simple. please debug and test and solve and fix this without breaking another system. 
+- Table of contents on the mainpage under the top level articles. it should be expand and contractable and start contracted. opening it allows you to see the 'tree' of all the pages, as well as the organizaiton of the headers and subheaders for each page.
+- Going to start with component system.
+
+- Add kanban todo board.
+
+- Digging works like this: we have an IBreakable interface, which takes in struct DealForce and returns struct BrokenMaterial. The Asteroid loses 10% of its mass per break? And the efficiency metric of the digger decides how much of the loss mass is gained in profit? Do we need to cap it though? Like max mats gotten per digger? as an asteroid the size of nevada would take a long time to break but would yield insane resources. Hmm we dont cap now. And we return resources equal to the avg makeup of said asteroid.
+- releasing preesure
+
+### WED 1.28.26
+- Will add ideas to archive.
+
+- ok and i want to add a new component system , i have much of it coded up, but i want to first add the digger as its simple. firstly there are three component slot types, primary, secondary, and specialized, for now just add the option for me to add within the sprite creator the points for these primary and secondary components. it should be on a pixel border, allowed to be on halves though. i should be able to specify the direction too. then create another pixel editor mode called like 'component' where i can sketch components and set the type as well as the center point of the component. the idea is i can attach differnt components to vehicles, and they snap into place based on the slot. then we need a vehicle editor too. opposed to just getting and applying the sprite during runtime, add a button enar the sprite name called 'apply vehicle chassis changes' where it applies the sprite and creates the correct component list sizes based on the ampunt of each component type. and createa. child object 'components' where it has more children called like 'Primary slot 1' 'Secondary slot 3' ... then i can easily go in and make the component object and drag it as a child and its setup automatically under that vehicle. and the vechilde should eb able to run 'activatecomponent' and whatnot. (will cost somethign at some point but for now just run it). have the components flash in and out of black quickly when being used. to start, allow me to hold E to activate all component slots at once for testing. will be using the digger. lmk any other changes needed.

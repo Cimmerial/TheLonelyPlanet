@@ -35,11 +35,25 @@ public class AsteroidEditor : Editor
             {
                 if (useDirection)
                 {
-                    asteroid.DealForce(testForce, testDirection);
+                    asteroid.DealForce(
+                        new DealForceData
+                        {
+                            forceAmount = testForce,
+                            forceDirection = testDirection,
+                            forceReturnEfficiencyPercentage = 0,
+                        }
+                    );
                 }
                 else
                 {
-                    asteroid.DealForce(testForce);
+                    asteroid.DealForce(
+                        new DealForceData
+                        {
+                            forceAmount = testForce,
+                            forceDirection = testDirection,
+                            forceReturnEfficiencyPercentage = 0,
+                        }
+                    );
                 }
             }
             else
