@@ -299,11 +299,11 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
         {
             rails.ApplyImpactForce(force);
 
-            // If orbit was broken, don't accumulate damage (object is now free-flying)
+            // If orbit was broken, we still want to accumulate damage!
             if (!rails.IsRailed)
             {
                 Debug.Log($"[{gameObject.name}] Orbit broken by {force}N impact! Asteroid is now free-flying.");
-                return null;
+                // Removed early return so damage continues to process
             }
         }
 

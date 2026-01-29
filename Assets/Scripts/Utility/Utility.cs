@@ -391,39 +391,62 @@ public static class Utility
             }
         }
         
-        Vector2Int startPoint = Vector2Int.zero;
-        bool foundStart = false;
+        List<List<Vector2>> allPaths = new List<List<Vector2>>();
+        bool[,] visited = new bool[width, height];
         
-        for (int y = 0; y < height && !foundStart; y++)
+        for (int y = 0; y < height; y++)
         {
-            for (int x = 0; x < width && !foundStart; x++)
+            for (int x = 0; x < width; x++)
             {
-                if (solidMap[x, y] && HasEmptyNeighbor(solidMap, x, y, width, height))
+                if (solidMap[x, y] && !visited[x, y] && HasEmptyNeighbor(solidMap, x, y, width, height))
                 {
-                    startPoint = new Vector2Int(x, y);
-                    foundStart = true;
+                    // Found a start point for a new island/hole
+                    Vector2Int startPoint = new Vector2Int(x, y);
+                    
+                    List<Vector2> edgePoints = TraceOutline(solidMap, startPoint, width, height);
+                    
+                    if (edgePoints.Count > 2)
+                    {
+                        // Mark traced points as visited to avoid re-tracing
+                        foreach (var point in edgePoints)
+                        {
+                            int px = Mathf.RoundToInt(point.x);
+                            int py = Mathf.RoundToInt(point.y);
+                            if (px >= 0 && px < width && py >= 0 && py < height)
+                            {
+                                visited[px, py] = true;
+                            }
+                        }
+
+                        if (simplification > 1)
+                            edgePoints = SimplifyPathLegacy(edgePoints, simplification);
+                            
+                        // Convert to World space relative to center
+                        for (int k = 0; k < edgePoints.Count; k++)
+                        {
+                            edgePoints[k] = new Vector2(
+                                (edgePoints[k].x - centerX) / pixelsPerUnit,
+                                (edgePoints[k].y - centerY) / pixelsPerUnit
+                            );
+                        }
+                        
+                        allPaths.Add(edgePoints);
+                    }
                 }
             }
         }
         
-        if (!foundStart)
+        if (allPaths.Count == 0)
             return new Vector2[][] { CreateFallbackBox(width, height, centerX, centerY, pixelsPerUnit) };
             
-        List<Vector2> edgePoints = TraceOutline(solidMap, startPoint, width, height);
-        
-        if (simplification > 1)
-            edgePoints = SimplifyPathLegacy(edgePoints, simplification);
-            
-        Vector2[] worldPoints = new Vector2[edgePoints.Count];
-        for (int i = 0; i < edgePoints.Count; i++)
+        // Convert List<List<Vector2>> to Vector2[][]
+        Vector2[][] result = new Vector2[allPaths.Count][];
+        for (int i = 0; i < allPaths.Count; i++)
         {
-            worldPoints[i] = new Vector2(
-                (edgePoints[i].x - centerX) / pixelsPerUnit,
-                (edgePoints[i].y - centerY) / pixelsPerUnit
-            );
+            result[i] = allPaths[i].ToArray();
         }
         
-        return new Vector2[][] { worldPoints };
+        return result;
     }
 
     private static bool HasEmptyNeighbor(bool[,] solidMap, int x, int y, int width, int height)

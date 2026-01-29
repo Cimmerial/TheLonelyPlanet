@@ -442,10 +442,10 @@ public class AsteroidFragmentGenerator
                 Utility.ColliderGenMode.Legacy
             );
 
-            // Verify collider has valid paths
-            if (collider.pathCount == 0 || collider.GetPath(0).Length < 3)
+            // Verify collider has paths
+            if (collider.pathCount == 0)
             {
-                Debug.LogWarning($"Fragment collider invalid (pathCount={collider.pathCount}), destroying fragment");
+                Debug.LogWarning($"Fragment collider invalid (pathCount=0), destroying fragment");
                 UnityEngine.Object.Destroy(fragmentObj);
                 return null;
             }
