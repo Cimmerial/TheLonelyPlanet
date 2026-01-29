@@ -1,5 +1,6 @@
 // Assets/Scripts/Vehicles/Vehicle.cs
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
@@ -7,6 +8,32 @@ using System.Collections.Generic;
 /// </summary>
 public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 {
+    [System.Serializable]
+    public class VehicleCameraSettings
+    {
+        public enum ZoomMode
+        {
+            SpriteSize = 0,
+            DistanceToNearestGravity = 1,
+        }
+
+        [Header("Follow")]
+        public bool overrideFollowSmoothness = false;
+        public float followSmoothness = 5f;
+
+        [Header("Zoom")]
+        public bool overrideZoom = false;
+        public ZoomMode zoomMode = ZoomMode.SpriteSize;
+
+        // SpriteSize mode
+        public float vehicleZoomRatio = 12.5f;
+
+        // Distance mode (absolute orthographic size values)
+        public float minZoom = 6f;
+        public float maxZoom = 40f;
+        public float distanceAtMinZoom = 5f;
+        public float distanceAtMaxZoom = 40f;
+    }
     public enum AutoRightingMode
     {
         Off = 0,
@@ -44,6 +71,9 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     [Header("Physics Data")]
     [SerializeField] protected float totalMass;
 
+    [Header("Camera (Optional Overrides)")]
+    [SerializeField] private VehicleCameraSettings cameraSettings = new VehicleCameraSettings();
+
     [Header("Placement Helpers")]
     [SerializeField] private bool placeOnPlanetOnStart = true;
     [SerializeField] private float hoverHeight = 0.0f;
@@ -52,6 +82,8 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     public Vector2 GetRelativeVelocity() => atmosphericPhysics?.GetRelativeVelocity() ?? Vector2.zero;
     public Vector2 GetPosition() => transform.position;
     public bool IsInAtmosphere() => atmosphericPhysics?.IsInAtmosphere ?? false;
+
+    public VehicleCameraSettings CameraSettings => cameraSettings;
 
     protected virtual void Awake()
     {
@@ -80,7 +112,31 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 
     protected virtual void Start()
     {
-        if (placeOnPlanetOnStart) PlaceOnNearestPlanet();
+        if (placeOnPlanetOnStart)
+        {
+            // In some scene setups, planets/moons may not be ready on the first Start frame.
+            // Retry briefly rather than silently failing.
+            StartCoroutine(PlaceOnNearestPlanetWithRetries());
+        }
+    }
+
+    private IEnumerator PlaceOnNearestPlanetWithRetries()
+    {
+        const int maxAttempts = 30; // ~0.5s at 60fps
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            Planet planet = atmosphericPhysics?.FindNearestPlanet();
+            if (planet != null)
+            {
+                PlaceOnNearestPlanet();
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        // Last attempt (in case FindNearestPlanet was temporarily null)
+        PlaceOnNearestPlanet();
     }
 
     protected virtual void FixedUpdate()

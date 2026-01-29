@@ -67,10 +67,60 @@ public class PixelArtEditor : EditorWindow
         {
             pixels[i] = backgroundColor;
         }
-        
+
         centerPoint = new Vector2(canvasSize / 2f, canvasSize / 2f);
         centerPointSet = false;
         componentSlots.Clear();
+    }
+
+    private void ResizeCanvasPreserveContents(int newSize)
+    {
+        newSize = Mathf.Clamp(newSize, 8, 256);
+        if (newSize == canvasSize || pixels == null) return;
+
+        int oldSize = canvasSize;
+        Color[] oldPixels = pixels;
+
+        // Preserve center offset relative to canvas center.
+        Vector2 oldCanvasCenter = new Vector2(oldSize / 2f, oldSize / 2f);
+        Vector2 newCanvasCenter = new Vector2(newSize / 2f, newSize / 2f);
+
+        Vector2 centerOffset = centerPoint - oldCanvasCenter;
+        Vector2 newCenterPoint = newCanvasCenter + centerOffset;
+
+        // We can only shift pixel data by whole pixels, so round the shift.
+        Vector2 rawShift = newCenterPoint - centerPoint;
+        int shiftX = Mathf.RoundToInt(rawShift.x);
+        int shiftY = Mathf.RoundToInt(rawShift.y);
+
+        Color[] newPixels = new Color[newSize * newSize];
+        for (int i = 0; i < newPixels.Length; i++)
+        {
+            newPixels[i] = backgroundColor;
+        }
+
+        for (int y = 0; y < oldSize; y++)
+        {
+            for (int x = 0; x < oldSize; x++)
+            {
+                int nx = x + shiftX;
+                int ny = y + shiftY;
+
+                if (nx < 0 || nx >= newSize || ny < 0 || ny >= newSize) continue;
+
+                newPixels[ny * newSize + nx] = oldPixels[y * oldSize + x];
+            }
+        }
+
+        canvasSize = newSize;
+        pixels = newPixels;
+
+        // Apply the same rounded shift to the center so slots/rendering remain consistent.
+        centerPoint = centerPoint + new Vector2(shiftX, shiftY);
+        centerPoint.x = Mathf.Clamp(centerPoint.x, 0f, canvasSize);
+        centerPoint.y = Mathf.Clamp(centerPoint.y, 0f, canvasSize);
+
+        Repaint();
     }
 
     private void OnGUI()
@@ -100,11 +150,10 @@ public class PixelArtEditor : EditorWindow
         // Canvas size
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("Canvas Size:", GUILayout.Width(80));
-        int newSize = EditorGUILayout.IntSlider(canvasSize, 8, 32);
+        int newSize = EditorGUILayout.IntSlider(canvasSize, 8, 256);
         if (newSize != canvasSize)
         {
-            canvasSize = newSize;
-            InitializeCanvas();
+            ResizeCanvasPreserveContents(newSize);
         }
         EditorGUILayout.EndHorizontal();
         
@@ -409,15 +458,21 @@ public class PixelArtEditor : EditorWindow
         {
             float relX = (e.mousePosition.x - canvasRect.x) / pixelDisplaySize;
             float relY = canvasSize - (e.mousePosition.y - canvasRect.y) / pixelDisplaySize;
-            
-            // Snap to nearest half-pixel
-            Vector2 slotPos = new Vector2(
+
+            // Slot placement uses the same canvas coordinate space as drawing:
+            // - origin is bottom-left
+            // - valid pixel centers are (0.5 .. canvasSize-0.5)
+            // Snap to nearest half-pixel and clamp to the canvas bounds (edges and centers allowed).
+            Vector2 canvasPos = new Vector2(
                 Mathf.Round(relX * 2f) / 2f,
                 Mathf.Round(relY * 2f) / 2f
             );
-            
-            slotPos.x = Mathf.Clamp(slotPos.x, 0f, canvasSize);
-            slotPos.y = Mathf.Clamp(slotPos.y, 0f, canvasSize);
+
+            canvasPos.x = Mathf.Clamp(canvasPos.x, 0f, canvasSize);
+            canvasPos.y = Mathf.Clamp(canvasPos.y, 0f, canvasSize);
+
+            // Store as OFFSET relative to chassis center.
+            Vector2 slotOffset = canvasPos - centerPoint;
             
             // Count existing slots of this type
             int slotIndex = 1;
@@ -428,7 +483,7 @@ public class PixelArtEditor : EditorWindow
             
             ComponentSlotData newSlot = new ComponentSlotData(
                 currentSlotType,
-                slotPos,
+                slotOffset,
                 currentSlotDirection,
                 slotIndex
             );
@@ -459,8 +514,11 @@ public class PixelArtEditor : EditorWindow
         {
             ComponentSlotData slot = componentSlots[i];
             
-            float screenX = canvasRect.x + slot.pixelPosition.x * pixelDisplaySize;
-            float screenY = canvasRect.y + (canvasSize - slot.pixelPosition.y) * pixelDisplaySize;
+            // Stored as center-relative offset; convert to canvas position for drawing.
+            Vector2 canvasPos = centerPoint + slot.pixelPosition;
+
+            float screenX = canvasRect.x + canvasPos.x * pixelDisplaySize;
+            float screenY = canvasRect.y + (canvasSize - canvasPos.y) * pixelDisplaySize;
             
             // Choose color based on type
             Color slotColor = Color.white;
@@ -597,7 +655,10 @@ public class PixelArtEditor : EditorWindow
             return;
         }
         
-        int minX = canvasSize, maxX = 0, minY = canvasSize, maxY = 0;
+        int minX = canvasSize;
+        int maxX = -1;
+        int minY = canvasSize;
+        int maxY = -1;
         bool hasPixels = false;
         
         for (int y = 0; y < canvasSize; y++)
@@ -623,17 +684,42 @@ public class PixelArtEditor : EditorWindow
         
         float centerX = centerPointSet ? centerPoint.x : canvasSize / 2f;
         float centerY = centerPointSet ? centerPoint.y : canvasSize / 2f;
-        
-        float leftDist = centerX - minX;
-        float rightDist = maxX - centerX;
-        float bottomDist = centerY - minY;
-        float topDist = maxY - centerY;
-        
+
+        // Pixel extents are in [x, x+1] coordinates.
+        float minEdgeX = minX;
+        float maxEdgeX = maxX + 1f;
+        float minEdgeY = minY;
+        float maxEdgeY = maxY + 1f;
+
+        float leftDist = centerX - minEdgeX;
+        float rightDist = maxEdgeX - centerX;
+        float bottomDist = centerY - minEdgeY;
+        float topDist = maxEdgeY - centerY;
+
         int newWidth = Mathf.CeilToInt(2f * Mathf.Max(leftDist, rightDist));
         int newHeight = Mathf.CeilToInt(2f * Mathf.Max(bottomDist, topDist));
-        
-        if (newWidth % 2 != 0) newWidth++;
-        if (newHeight % 2 != 0) newHeight++;
+
+        // Choose parity so the chosen center can land exactly at texture center.
+        bool centerXHalf = Mathf.Abs((centerX - Mathf.Floor(centerX)) - 0.5f) < 0.0001f;
+        bool centerYHalf = Mathf.Abs((centerY - Mathf.Floor(centerY)) - 0.5f) < 0.0001f;
+
+        if (centerXHalf)
+        {
+            if (newWidth % 2 == 0) newWidth += 1; // want odd
+        }
+        else
+        {
+            if (newWidth % 2 != 0) newWidth += 1; // want even
+        }
+
+        if (centerYHalf)
+        {
+            if (newHeight % 2 == 0) newHeight += 1;
+        }
+        else
+        {
+            if (newHeight % 2 != 0) newHeight += 1;
+        }
         
         Texture2D texture = new Texture2D(newWidth, newHeight)
         {
@@ -647,8 +733,8 @@ public class PixelArtEditor : EditorWindow
             newPixels[i] = Color.clear;
         }
         
-        int offsetX = Mathf.FloorToInt(newWidth / 2f - centerX);
-        int offsetY = Mathf.FloorToInt(newHeight / 2f - centerY);
+        int offsetX = Mathf.RoundToInt(newWidth / 2f - centerX);
+        int offsetY = Mathf.RoundToInt(newHeight / 2f - centerY);
         
         for (int y = 0; y < canvasSize; y++)
         {
@@ -707,10 +793,6 @@ public class PixelArtEditor : EditorWindow
             return;
         }
         
-        // Adjust component slot positions for the exported texture offset
-        float centerX = centerPointSet ? centerPoint.x : canvasSize / 2f;
-        float centerY = centerPointSet ? centerPoint.y : canvasSize / 2f;
-        
         // Create/load chassis config
         string configPath = $"Assets/Resources/ChassisConfigs/{spriteName}_Chassis.asset";
         string folderPath = "Assets/Resources/ChassisConfigs";
@@ -728,6 +810,19 @@ public class PixelArtEditor : EditorWindow
         }
         
         config.chassisData.spriteName = spriteName;
+
+        // Store reference sprite size (informational). Slot data itself is always stored center-relative.
+        string spritePath = $"Assets/Resources/VehicleSprites/{spriteName}.png";
+        Texture2D savedSprite = AssetDatabase.LoadAssetAtPath<Texture2D>(spritePath);
+        if (savedSprite != null)
+        {
+            config.chassisData.canvasSize = new Vector2(savedSprite.width, savedSprite.height);
+        }
+        else
+        {
+            config.chassisData.canvasSize = new Vector2(canvasSize, canvasSize);
+        }
+
         config.chassisData.componentSlots.Clear();
         config.chassisData.componentSlots.AddRange(componentSlots);
         
@@ -765,16 +860,20 @@ public class PixelArtEditor : EditorWindow
         texture.LoadImage(fileData);
         
         int maxDimension = Mathf.Max(texture.width, texture.height);
-        if (maxDimension > canvasSize)
+
+        // Keep a square canvas, but ensure we can center the sprite without a half-pixel shift.
+        int desiredCanvas = Mathf.Clamp(maxDimension, 8, 256);
+        if (((desiredCanvas - texture.width) & 1) != 0 || ((desiredCanvas - texture.height) & 1) != 0)
         {
-            canvasSize = Mathf.NextPowerOfTwo(maxDimension);
-            if (canvasSize > 32) canvasSize = 32;
+            desiredCanvas = Mathf.Min(256, desiredCanvas + 1);
         }
-        
+
+        canvasSize = desiredCanvas;
         InitializeCanvas();
-        
-        int offsetX = (canvasSize - texture.width) / 2;
-        int offsetY = (canvasSize - texture.height) / 2;
+
+        // Place sprite so its center aligns with canvas center.
+        int offsetX = Mathf.RoundToInt(canvasSize / 2f - texture.width / 2f);
+        int offsetY = Mathf.RoundToInt(canvasSize / 2f - texture.height / 2f);
         
         for (int y = 0; y < texture.height; y++)
         {
@@ -788,6 +887,11 @@ public class PixelArtEditor : EditorWindow
                 }
             }
         }
+
+        // Ensure the editor center aligns exactly with the loaded sprite center.
+        // This prevents half-pixel drift when the sprite dimensions and chosen canvas size interact.
+        centerPoint = new Vector2(offsetX + texture.width / 2f, offsetY + texture.height / 2f);
+        centerPointSet = true;
         
         spriteName = Path.GetFileNameWithoutExtension(path);
         

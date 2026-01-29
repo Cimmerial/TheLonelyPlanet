@@ -87,14 +87,20 @@ public class CameraController : MonoBehaviour
         }
         
         // Free camera movement (only when not locked)
+        // NOTE: Use arrow keys only (not WASD) so player controls don't fight the camera.
         if (currentMode == CameraMode.Free)
         {
-            float horizontal = Input.GetAxis("Horizontal");
-            float vertical = Input.GetAxis("Vertical");
-            
+            float horizontal = 0f;
+            float vertical = 0f;
+
+            if (Input.GetKey(KeyCode.LeftArrow)) horizontal -= 1f;
+            if (Input.GetKey(KeyCode.RightArrow)) horizontal += 1f;
+            if (Input.GetKey(KeyCode.DownArrow)) vertical -= 1f;
+            if (Input.GetKey(KeyCode.UpArrow)) vertical += 1f;
+
             Vector3 movement = new Vector3(horizontal, vertical, 0) * freeMoveSpeed * Time.deltaTime;
             transform.position += movement;
-            
+
             // Free zoom
             float scroll = Input.GetAxis("Mouse ScrollWheel");
             if (Mathf.Abs(scroll) > 0.01f)
@@ -107,6 +113,8 @@ public class CameraController : MonoBehaviour
 
     private void UpdateCamera()
     {
+        float effectiveFollowSmoothness = followSmoothness;
+
         switch (currentMode)
         {
             case CameraMode.LockedToPlanet:
@@ -118,20 +126,20 @@ public class CameraController : MonoBehaviour
                         lockedPlanet.transform.position.y,
                         transform.position.z
                     );
-                    transform.position = Vector3.Lerp(transform.position, targetPos, followSmoothness * Time.deltaTime);
-                    
+                    transform.position = Vector3.Lerp(transform.position, targetPos, effectiveFollowSmoothness * Time.deltaTime);
+
                     // Match planet rotation if enabled
                     if (matchRotation)
                     {
                         Quaternion targetRot = Quaternion.Euler(0, 0, lockedPlanet.transform.eulerAngles.z);
-                        transform.rotation = Quaternion.Lerp(transform.rotation, targetRot, followSmoothness * Time.deltaTime);
+                        transform.rotation = Quaternion.Lerp(transform.rotation, targetRot, effectiveFollowSmoothness * Time.deltaTime);
                     }
                     else
                     {
                         // Reset to upright
-                        transform.rotation = Quaternion.Lerp(transform.rotation, Quaternion.identity, followSmoothness * Time.deltaTime);
+                        transform.rotation = Quaternion.Lerp(transform.rotation, Quaternion.identity, effectiveFollowSmoothness * Time.deltaTime);
                     }
-                    
+
                     // Calculate zoom based on planet radius
                     float planetRadius = lockedPlanet.Radius;
                     targetZoom = planetRadius / planetZoomRatio;
@@ -141,40 +149,68 @@ public class CameraController : MonoBehaviour
                     UnlockCamera();
                 }
                 break;
-                
+
             case CameraMode.LockedToVehicle:
                 if (lockedVehicle != null)
                 {
+                    var vehicleCamera = lockedVehicle.CameraSettings;
+                    if (vehicleCamera != null && vehicleCamera.overrideFollowSmoothness)
+                    {
+                        effectiveFollowSmoothness = vehicleCamera.followSmoothness;
+                    }
+
                     // Follow vehicle
                     Vector3 targetPos = new Vector3(
                         lockedVehicle.transform.position.x,
                         lockedVehicle.transform.position.y,
                         transform.position.z
                     );
-                    transform.position = Vector3.Lerp(transform.position, targetPos, followSmoothness * Time.deltaTime);
-                    
+                    transform.position = Vector3.Lerp(transform.position, targetPos, effectiveFollowSmoothness * Time.deltaTime);
+
                     // Match vehicle rotation if enabled
                     if (matchRotation)
                     {
                         Quaternion targetRot = Quaternion.Euler(0, 0, lockedVehicle.transform.eulerAngles.z);
-                        transform.rotation = Quaternion.Lerp(transform.rotation, targetRot, followSmoothness * Time.deltaTime);
+                        transform.rotation = Quaternion.Lerp(transform.rotation, targetRot, effectiveFollowSmoothness * Time.deltaTime);
                     }
                     else
                     {
                         // Reset to upright
-                        transform.rotation = Quaternion.Lerp(transform.rotation, Quaternion.identity, followSmoothness * Time.deltaTime);
+                        transform.rotation = Quaternion.Lerp(transform.rotation, Quaternion.identity, effectiveFollowSmoothness * Time.deltaTime);
                     }
-                    
-                    // Calculate zoom based on vehicle sprite size
-                    float spriteSize = GetVehicleSpriteSize(lockedVehicle);
-                    targetZoom = spriteSize / vehicleZoomRatio;
+
+                    // Zoom
+                    if (vehicleCamera != null && vehicleCamera.overrideZoom)
+                    {
+                        switch (vehicleCamera.zoomMode)
+                        {
+                            case Vehicle.VehicleCameraSettings.ZoomMode.DistanceToNearestGravity:
+                                float dist = FindNearestGravityDistance(lockedVehicle.transform.position);
+                                float t = Mathf.InverseLerp(vehicleCamera.distanceAtMinZoom, vehicleCamera.distanceAtMaxZoom, dist);
+                                targetZoom = Mathf.Lerp(vehicleCamera.minZoom, vehicleCamera.maxZoom, t);
+                                break;
+
+                            case Vehicle.VehicleCameraSettings.ZoomMode.SpriteSize:
+                            default:
+                                float spriteSize = GetVehicleSpriteSize(lockedVehicle);
+                                float ratio = Mathf.Max(0.0001f, vehicleCamera.vehicleZoomRatio);
+                                targetZoom = spriteSize / ratio;
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        // Default: Calculate zoom based on vehicle sprite size
+                        float spriteSize = GetVehicleSpriteSize(lockedVehicle);
+                        targetZoom = spriteSize / vehicleZoomRatio;
+                    }
                 }
                 else
                 {
                     UnlockCamera();
                 }
                 break;
-                
+
             case CameraMode.Free:
                 // Reset rotation in free mode
                 if (!matchRotation || transform.rotation != Quaternion.identity)
@@ -183,9 +219,27 @@ public class CameraController : MonoBehaviour
                 }
                 break;
         }
-        
+
         // Smooth zoom
-        cam.orthographicSize = Mathf.Lerp(cam.orthographicSize, targetZoom, followSmoothness * Time.deltaTime);
+        cam.orthographicSize = Mathf.Lerp(cam.orthographicSize, targetZoom, effectiveFollowSmoothness * Time.deltaTime);
+    }
+
+    private float FindNearestGravityDistance(Vector3 position)
+    {
+        float minDist = float.MaxValue;
+        var sources = GravityManager.GetAllGravitySources();
+
+        for (int i = 0; i < sources.Count; i++)
+        {
+            if (sources[i] is MonoBehaviour mb)
+            {
+                float dist = Vector2.Distance(position, mb.transform.position);
+                if (dist < minDist) minDist = dist;
+            }
+        }
+
+        // If no sources, just return a large distance.
+        return minDist == float.MaxValue ? 9999f : minDist;
     }
 
     private void UpdateUI()
@@ -210,6 +264,11 @@ public class CameraController : MonoBehaviour
                 if (nearestVehicle != null)
                 {
                     text += $"[V] Follow <color=#00FF00>{nearestVehicle.name}</color>\n";
+
+                    if (nearestVehicle is Flier)
+                    {
+                        text += "[M] Toggle Flight Mode (in atmosphere)\n";
+                    }
                 }
                 
                 text += "\n[Arrow Keys] Move\n[Mouse Wheel] Zoom";
@@ -228,6 +287,13 @@ public class CameraController : MonoBehaviour
                 text = $"<b>FOLLOWING VEHICLE</b>\n";
                 text += $"<color=#00FF00>{lockedVehicle.name}</color>\n";
                 text += $"\nSpeed: {lockedVehicle.GetComponent<Rigidbody2D>()?.velocity.magnitude:F2}\n";
+
+                if (lockedVehicle is Flier flier)
+                {
+                    text += $"Flight Mode: <color=#00FFFF>{flier.CurrentFlightMode}</color>\n";
+                    text += "[M] Toggle Flight Mode (in atmosphere)\n";
+                }
+
                 text += $"Zoom: {cam.orthographicSize:F2}\n";
                 text += $"Rotation Match: <color={(matchRotation ? "#00FF00>ON" : "#FF0000>OFF")}</color>\n";
                 text += "\n[F] Free Camera\n[P] Follow Planet\n[T] Toggle Rotation";

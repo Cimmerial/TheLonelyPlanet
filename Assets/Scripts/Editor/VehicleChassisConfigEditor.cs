@@ -24,27 +24,13 @@ public class VehicleChassisConfigEditor : Editor
         
         // Helper Calculation Info
         Vector2 center = config.chassisData.canvasSize / 2f;
-        EditorGUILayout.HelpBox($"Canvas Center: ({center.x}, {center.y})\n" +
-                                "All 'Canvas Positions' entered below will be converted to offsets relative to this center.", MessageType.Info);
+        EditorGUILayout.HelpBox(
+            $"Reference Canvas Center: ({center.x}, {center.y})\n" +
+            "Slot positions are stored as OFFSETS relative to center (0,0 at chassis center).\n" +
+            "Reference Canvas Size is informational and only used for displaying derived positions.",
+            MessageType.Info
+        );
 
-        // MIGRATION TOOL
-        GUI.backgroundColor = Color.yellow;
-        if (GUILayout.Button("Migrate Legacy Data (Absolute -> Relative)"))
-        {
-            if (EditorUtility.DisplayDialog("Migrate Data?", 
-                "This will subtract the Canvas Center from ALL current slot positions. \n\n" +
-                "Use this ONLY if your current data is in 'Absolute Canvas Coordinates' (e.g. 7, 5.5) and you want to convert it to Relative Offsets.", 
-                "Yes, Migrate", "Cancel"))
-            {
-                foreach (var slot in config.chassisData.componentSlots)
-                {
-                    // Convert Absolute (7, 5.5) -> Relative (2, 0.5)
-                    slot.pixelPosition -= center;
-                }
-                EditorUtility.SetDirty(config);
-            }
-        }
-        GUI.backgroundColor = Color.white;
         EditorGUILayout.Space();
 
         // Slot List
@@ -76,22 +62,12 @@ public class VehicleChassisConfigEditor : Editor
                 if (slot.direction == Vector2.zero) slot.direction = Vector2.up; // Prevent zero direction
                 slot.direction.Normalize();
                 
-                // POSITIONING MAGIC
-                // Calculate current Canvas Position derived from stored Relative Offset
-                // Relative = Canvas - Center  =>  Canvas = Relative + Center
-                Vector2 currentCanvasPos = slot.pixelPosition + center;
-                
-                Vector2 newCanvasPos = EditorGUILayout.Vector2Field("Canvas Position (e.g. 7, 5.5)", currentCanvasPos);
-                
-                // If changed, update the Relative Offset (pixelPosition)
-                if (newCanvasPos != currentCanvasPos)
-                {
-                    slot.pixelPosition = newCanvasPos - center;
-                }
-                
-                // Show the actual stored value read-only
+                // Stored value is always a center-relative offset.
+                slot.pixelPosition = EditorGUILayout.Vector2Field("Relative Offset (from center)", slot.pixelPosition);
+
+                // Derived reference position (read-only)
                 EditorGUI.BeginDisabledGroup(true);
-                EditorGUILayout.Vector2Field("Stored Relative Offset", slot.pixelPosition);
+                EditorGUILayout.Vector2Field("Reference Canvas Position", slot.pixelPosition + center);
                 EditorGUI.EndDisabledGroup();
                 
                 EditorGUILayout.EndVertical();
