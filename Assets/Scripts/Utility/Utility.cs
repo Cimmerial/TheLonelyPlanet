@@ -43,7 +43,7 @@ public static class Utility
         return _cachedFrictionMaterial;
     }
 
-    public enum ColliderGenMode { Accurate, Legacy }
+    public enum ColliderGenMode { Accurate, Legacy, Convex }
 
     /// <summary>
     /// Generates a PolygonCollider2D that matches the shape of a texture
@@ -74,7 +74,7 @@ public static class Utility
         }
         else
         {
-            paths = TraceTextureOutlineAccurate(texture, pixelsPerUnit, edgeSimplification, alphaThreshold);
+            paths = TraceTextureOutlineAccurate(texture, pixelsPerUnit, edgeSimplification, alphaThreshold, mode == ColliderGenMode.Convex);
         }
         
         // Set the paths on the polygon collider
@@ -94,7 +94,8 @@ public static class Utility
         Texture2D texture, 
         float pixelsPerUnit,
         int simplification,
-        float alphaThreshold
+        float alphaThreshold,
+        bool makeConvex = false
     )
     {
         int width = texture.width;
@@ -135,9 +136,16 @@ public static class Utility
                              List<Vector2> path = TraceGridLoop(solidMap, x, y, width, height, visitedEdges);
                              if (path.Count > 2)
                              {
-                                 // Simplify
-                                 if (simplification > 1) 
+                                 if (makeConvex)
+                                 {
+                                     // Apply Convex Hull
+                                     path = CalculateConvexHull(path);
+                                 }
+                                 else if (simplification > 1) 
+                                 {
+                                     // Simplify
                                      path = SimplifyPathAccurate(path, simplification);
+                                 }
                                      
                                  // Convert to World
                                  for (int k = 0; k < path.Count; k++)
@@ -159,6 +167,12 @@ public static class Utility
         {
              return new Vector2[][] { CreateFallbackBox(width, height, centerX, centerY, pixelsPerUnit) };
         }
+
+        // If Convex, usually we only want the largest outer hull, or merge all hulls?
+        // Typically a sprite is one piece. If it has widely separated parts, separate hulls is fine.
+        // But if we want ONE big hull for the whole vehicle, we should compute hull of ALL points.
+        // However, trace loop separates islands. 
+        // For now, let's keep separate hulls for separate islands (e.g. detached bits).
         
         // Convert List<List<Vector2>> to Vector2[][]
         Vector2[][] result = new Vector2[allPaths.Count][];
@@ -168,6 +182,54 @@ public static class Utility
         }
         
         return result;
+    }
+    
+    // ... TraceGridLoop ...
+
+    // Monotone Chain Algorithm for Convex Hull
+    private static List<Vector2> CalculateConvexHull(List<Vector2> points)
+    {
+        if (points.Count <= 3) return points;
+
+        // Sort points by x, then y
+        points.Sort((a, b) => 
+            a.x == b.x ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x));
+
+        List<Vector2> upper = new List<Vector2>();
+        List<Vector2> lower = new List<Vector2>();
+
+        // Build lower hull
+        foreach (var p in points)
+        {
+            while (lower.Count >= 2 && Cross(lower[lower.Count - 2], lower[lower.Count - 1], p) <= 0)
+            {
+                lower.RemoveAt(lower.Count - 1);
+            }
+            lower.Add(p);
+        }
+
+        // Build upper hull
+        for (int i = points.Count - 1; i >= 0; i--)
+        {
+            var p = points[i];
+            while (upper.Count >= 2 && Cross(upper[upper.Count - 2], upper[upper.Count - 1], p) <= 0)
+            {
+                upper.RemoveAt(upper.Count - 1);
+            }
+            upper.Add(p);
+        }
+
+        // Concatenate (remove duplicate start/end points)
+        lower.RemoveAt(lower.Count - 1);
+        upper.RemoveAt(upper.Count - 1);
+
+        lower.AddRange(upper);
+        return lower;
+    }
+
+    private static float Cross(Vector2 O, Vector2 A, Vector2 B)
+    {
+        return (A.x - O.x) * (B.y - O.y) - (A.y - O.y) * (B.x - O.x);
     }
     
     private static List<Vector2> TraceGridLoop(bool[,] solidMap, int startX, int startY, int width, int height, HashSet<string> visitedEdges)

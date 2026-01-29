@@ -310,6 +310,10 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
         // Original damage accumulation logic
         if (force >= breakThreshold - accumulatedForce) accumulatedForce += force;
         else accumulatedForce += force * 0.5f;
+        
+        // Update Name
+        string prefix = isFragment ? "FRAG" : "AST";
+        gameObject.name = $"{prefix} - {accumulatedForce:F0}/{breakThreshold:F0}";
 
         // Debug.Log($"Asteroid took {force}N force. Accumulated: {accumulatedForce}/{breakThreshold}N");
 

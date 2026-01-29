@@ -32,7 +32,7 @@ public abstract class VComponent : MonoBehaviour
         {
             componentRenderer = rendererTransform.GetComponent<SpriteRenderer>();
         }
-        
+
         if (componentRenderer != null)
         {
             originalColor = componentRenderer.color;
@@ -43,7 +43,7 @@ public abstract class VComponent : MonoBehaviour
     {
         // Load metadata first (contains sprite name and direction)
         LoadMetadata();
-        
+
         // Then load the sprite
         LoadComponentSprite();
     }
@@ -184,26 +184,26 @@ public abstract class VComponent : MonoBehaviour
     public virtual void SetupComponent(Vehicle vehicle, ComponentSlotData slotData)
     {
         parentVehicle = vehicle;
-        
+
         if (slotData != null)
         {
             // Position is already set by parent (slot object position)
-            
+
             // Calculate rotation to align component's attachment direction with slot's direction
             if (slotData.direction != Vector2.zero && attachmentDirection != Vector2.zero)
             {
                 // Calculate angle between component's attachment direction and slot direction
                 float componentAngle = Mathf.Atan2(attachmentDirection.y, attachmentDirection.x) * Mathf.Rad2Deg;
                 float slotAngle = Mathf.Atan2(slotData.direction.y, slotData.direction.x) * Mathf.Rad2Deg;
-                
+
                 // Rotate component so its attachment direction aligns with slot direction
                 // We want the component's attachment direction to point in the SAME direction as the slot
                 float rotationAngle = slotAngle - componentAngle;
-                
+
                 transform.localRotation = Quaternion.Euler(0, 0, rotationAngle);
             }
         }
-        
+
         // Load metadata if available
         if (componentMetadata != null)
         {
@@ -219,7 +219,7 @@ public abstract class VComponent : MonoBehaviour
     [ContextMenu("Load Component Sprite")]
     public virtual void LoadComponentSprite()
     {
-        if (string.IsNullOrEmpty(componentSpriteName)) 
+        if (string.IsNullOrEmpty(componentSpriteName))
         {
             Debug.LogWarning($"Component sprite name not set for {gameObject.name}");
             return;
@@ -235,7 +235,7 @@ public abstract class VComponent : MonoBehaviour
         // Create or get renderer child
         Transform rendererTransform = transform.Find("ComponentRenderer");
         GameObject rendererChild;
-        
+
         if (rendererTransform != null)
         {
             rendererChild = rendererTransform.gameObject;
@@ -264,14 +264,14 @@ public abstract class VComponent : MonoBehaviour
         componentRenderer.sprite = componentSprite;
         componentRenderer.sortingOrder = 2; // Above vehicle
         originalColor = componentRenderer.color;
-        
+
         // Generate collider for the component on the root object
-        Utility.GeneratePolygonCollider(gameObject, componentTexture, Utility.GLOBAL_PPU);
+        Utility.GeneratePolygonCollider(gameObject, componentTexture, Utility.GLOBAL_PPU, 2, 0.1f, Utility.ColliderGenMode.Convex);
         Debug.Log($"Generated PolygonCollider2D for {componentName}");
-        
+
         Debug.Log($"Loaded component sprite: {componentSpriteName} for {componentName}");
     }
-    
+
     [ContextMenu("Reload Metadata")]
     public void ReloadMetadata()
     {

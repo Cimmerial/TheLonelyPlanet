@@ -174,7 +174,7 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
             Utility.GLOBAL_PPU, 
             2, 
             0.1f, 
-            Utility.ColliderGenMode.Accurate
+            Utility.ColliderGenMode.Convex
         );
 
         // Update rigidbody settings (only if rb exists - might be in edit mode)
