@@ -7,9 +7,23 @@ using System.Collections.Generic;
 /// </summary>
 public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 {
+    public enum AutoRightingMode
+    {
+        Off = 0,
+        GroundedInAtmosphere = 1,
+        InAtmosphere = 2,
+    }
+
     [Header("Vehicle Properties")]
     [SerializeField] protected string spriteName;
     [SerializeField] protected float massPerPixel = 1.0f;
+
+    [Header("Auto Righting")]
+    [SerializeField] private AutoRightingMode autoRightingMode = AutoRightingMode.GroundedInAtmosphere;
+    [SerializeField] private float autoRightingTriggerDegrees = 5f;
+    [Tooltip("Higher values right faster. Uses exponential smoothing in FixedUpdate.")]
+    [SerializeField] private float autoRightingSpeed = 8f;
+    [SerializeField] private bool autoRightingZeroAngularVelocity = true;
 
     [Header("Vehicle Chassis Config")]
     [SerializeField] protected VehicleChassisConfig chassisConfig;
@@ -77,6 +91,7 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         }
 
         UpdateVehiclePhysics();
+        ApplyAutoRighting();
     }
 
     protected virtual void LateUpdate()
@@ -85,6 +100,63 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     }
 
     protected abstract void UpdateVehiclePhysics();
+
+    /// <summary>
+    /// Smoothly rotates the vehicle towards a "correct" orientation relative to the nearest planet.
+    /// Default behavior is to align transform.up to the radial (planet center -> vehicle) direction.
+    /// </summary>
+    protected virtual void ApplyAutoRighting()
+    {
+        if (autoRightingMode == AutoRightingMode.Off) return;
+        if (rb == null || atmosphericPhysics == null) return;
+
+        // Only active in atmosphere (never in space).
+        if (!atmosphericPhysics.IsInAtmosphere) return;
+
+        // Optional: only right when grounded.
+        if (autoRightingMode == AutoRightingMode.GroundedInAtmosphere && !atmosphericPhysics.IsGrounded)
+        {
+            return;
+        }
+
+        Planet planet = atmosphericPhysics.FindNearestPlanet();
+        if (planet == null) return;
+
+        // Safety: ensure we're actually inside this planet's atmosphere.
+        if (!atmosphericPhysics.CheckIfInAtmosphereOf(planet)) return;
+
+        float targetAngle = CalculatePlanetRadialUprightAngle(planet);
+        float currentAngle = rb.rotation;
+
+        float angleError = Mathf.DeltaAngle(currentAngle, targetAngle);
+        if (Mathf.Abs(angleError) <= autoRightingTriggerDegrees) return;
+
+        // Exponential smoothing so tuning is framerate-independent.
+        float dt = Time.fixedDeltaTime;
+        float t = 1f - Mathf.Exp(-Mathf.Max(0f, autoRightingSpeed) * dt);
+
+        float nextAngle = Mathf.LerpAngle(currentAngle, targetAngle, t);
+        rb.MoveRotation(nextAngle);
+
+        if (autoRightingZeroAngularVelocity)
+        {
+            rb.angularVelocity = 0f;
+        }
+    }
+
+    protected float CalculatePlanetRadialUprightAngle(Planet planet)
+    {
+        if (planet == null) return rb != null ? rb.rotation : transform.eulerAngles.z;
+
+        Vector2 fromPlanet = (Vector2)transform.position - (Vector2)planet.transform.position;
+        if (fromPlanet.sqrMagnitude < 0.0001f)
+        {
+            return rb != null ? rb.rotation : transform.eulerAngles.z;
+        }
+
+        Vector2 radialUp = fromPlanet.normalized;
+        return Mathf.Atan2(radialUp.y, radialUp.x) * Mathf.Rad2Deg - 90f;
+    }
 
     protected virtual void LoadAndSetupVehicle()
     {
