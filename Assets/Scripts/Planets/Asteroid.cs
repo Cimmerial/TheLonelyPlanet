@@ -311,7 +311,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
         if (force >= breakThreshold - accumulatedForce) accumulatedForce += force;
         else accumulatedForce += force * 0.5f;
 
-        Debug.Log($"Asteroid took {force}N force. Accumulated: {accumulatedForce}/{breakThreshold}N");
+        // Debug.Log($"Asteroid took {force}N force. Accumulated: {accumulatedForce}/{breakThreshold}N");
 
         atomizeThreshold -= force;
 
@@ -428,4 +428,6 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
 
     public List<float> StartingRotationSpeedBounds => startingRotationSpeedBounds;
     public float ToughnessMultiplier => toughnessMultiplier;
+    public float BreakThreshold => breakThreshold;
+    public float AccumulatedForce => accumulatedForce;
 }

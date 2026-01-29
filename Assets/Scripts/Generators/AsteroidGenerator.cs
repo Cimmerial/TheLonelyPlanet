@@ -6,6 +6,11 @@ public class AsteroidGenerator
 {
     public void GenerateAsteroid(Asteroid asteroid)
 {
+    // Parent to "ASTEROIDS" container
+    GameObject container = GameObject.Find("ASTEROIDS");
+    if (container == null) container = new GameObject("ASTEROIDS");
+    asteroid.transform.SetParent(container.transform);
+
     Vector2 dimensions = asteroid.MaxDimensions;
 
     float maxDimension = Mathf.Max(dimensions.x, dimensions.y);
@@ -27,6 +32,7 @@ public class AsteroidGenerator
 
     float totalMass = filledPixels * asteroid.MassPerPixel;
     asteroid.SetPhysicsData(totalMass);
+    asteroid.gameObject.name = $"AST - {asteroid.AccumulatedForce:F0}/{asteroid.BreakThreshold:F0}";
 
     asteroid.AsteroidSpriteRenderer = AddRendererChild(asteroid, "AsteroidRenderer", 0);
 
@@ -66,7 +72,8 @@ public Collider2D AddPolygonColliderChild(Asteroid asteroid, string name, Textur
         texture,
         Utility.GLOBAL_PPU,
         simplification,
-        0.1f
+        0.1f,
+        Utility.ColliderGenMode.Legacy
     );
 
     // NO RIGIDBODY HERE ANYMORE

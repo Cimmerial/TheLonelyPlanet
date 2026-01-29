@@ -1,4 +1,6 @@
+// Assets/Scripts/Vehicles/Vehicle.cs
 using UnityEngine;
+using System.Collections.Generic;
 
 /// <summary>
 /// Abstract base class for all vehicles
@@ -7,7 +9,10 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 {
     [Header("Vehicle Properties")]
     [SerializeField] protected string spriteName;
-    [SerializeField] protected float massPerPixel = 1.0f; // Reasonable mass (same as asteroids)
+    [SerializeField] protected float massPerPixel = 1.0f;
+
+    [Header("Vehicle Chassis Config")]
+    [SerializeField] protected VehicleChassisConfig chassisConfig;
 
     [Header("Vehicle Components")]
     [SerializeField] protected SpriteRenderer vehicleSpriteRenderer;
@@ -15,6 +20,12 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     [SerializeField] protected Texture2D vehicleTexture;
     [SerializeField] protected Rigidbody2D rb;
     [SerializeField] protected AtmosphericPhysics atmosphericPhysics;
+
+    [Header("Component Management")]
+    [SerializeField] protected Transform componentsParent;
+    [SerializeField] protected List<Transform> primarySlots = new List<Transform>();
+    [SerializeField] protected List<Transform> secondarySlots = new List<Transform>();
+    [SerializeField] protected List<Transform> specializedSlots = new List<Transform>();
 
     [Header("Physics Data")]
     [SerializeField] protected float totalMass;
@@ -28,7 +39,6 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     public Vector2 GetPosition() => transform.position;
     public bool IsInAtmosphere() => atmosphericPhysics?.IsInAtmosphere ?? false;
 
-
     protected virtual void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
@@ -39,7 +49,6 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
             rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
         }
 
-        // Now safe to add AtmosphericPhysics (it can find the RB)
         atmosphericPhysics = GetComponent<AtmosphericPhysics>();
         if (atmosphericPhysics == null)
         {
@@ -50,6 +59,9 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         {
             LoadAndSetupVehicle();
         }
+
+        // Setup existing components
+        SetupExistingComponents();
     }
 
     protected virtual void Start()
@@ -59,13 +71,11 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 
     protected virtual void FixedUpdate()
     {
-        // Apply atmospheric physics
         if (atmosphericPhysics != null)
         {
             atmosphericPhysics.ApplyAtmosphericPhysics(applyGravity: true);
         }
 
-        // Subclass-specific physics
         UpdateVehiclePhysics();
     }
 
@@ -74,14 +84,10 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         atmosphericPhysics?.DecayGroundedFrames();
     }
 
-    /// <summary>
-    /// Override this for vehicle-specific physics (movement, etc.)
-    /// </summary>
     protected abstract void UpdateVehiclePhysics();
 
     protected virtual void LoadAndSetupVehicle()
     {
-        // Load texture from Resources/VehicleSprites
         vehicleTexture = Resources.Load<Texture2D>($"VehicleSprites/{spriteName}");
 
         if (vehicleTexture == null)
@@ -90,7 +96,6 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
             return;
         }
 
-        // EDITED: Find bounding box of visible pixels (alpha > 0)
         int minX = vehicleTexture.width;
         int maxX = 0;
         int minY = vehicleTexture.height;
@@ -104,8 +109,6 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
                 if (vehicleTexture.GetPixel(x, y).a > 0.1f)
                 {
                     filledPixels++;
-
-                    // ADDED: Track bounding box
                     if (x < minX) minX = x;
                     if (x > maxX) maxX = x;
                     if (y < minY) minY = y;
@@ -116,14 +119,28 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 
         totalMass = filledPixels * massPerPixel;
 
-        // Create sprite renderer child
-        GameObject rendererChild = new GameObject("VehicleRenderer");
-        rendererChild.transform.SetParent(transform);
-        rendererChild.transform.localPosition = Vector3.zero;
-        vehicleSpriteRenderer = rendererChild.AddComponent<SpriteRenderer>();
-        vehicleSpriteRenderer.sortingOrder = 1; // Above asteroids
+        // Create or reuse sprite renderer child
+        Transform rendererTransform = transform.Find("VehicleRenderer");
+        GameObject rendererChild;
+        
+        if (rendererTransform != null)
+        {
+            rendererChild = rendererTransform.gameObject;
+        }
+        else
+        {
+            rendererChild = new GameObject("VehicleRenderer");
+            rendererChild.transform.SetParent(transform);
+            rendererChild.transform.localPosition = Vector3.zero;
+        }
+        
+        vehicleSpriteRenderer = rendererChild.GetComponent<SpriteRenderer>();
+        if (vehicleSpriteRenderer == null)
+        {
+            vehicleSpriteRenderer = rendererChild.AddComponent<SpriteRenderer>();
+        }
+        vehicleSpriteRenderer.sortingOrder = 1;
 
-        // Create sprite
         Sprite vehicleSprite = Sprite.Create(
             vehicleTexture,
             new Rect(0, 0, vehicleTexture.width, vehicleTexture.height),
@@ -132,50 +149,277 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         );
         vehicleSpriteRenderer.sprite = vehicleSprite;
 
-        // Create collider on CHILD GameObject (like asteroids)
-        GameObject colliderChild = new GameObject("VehicleCollider");
-        colliderChild.transform.SetParent(transform);
-        colliderChild.transform.localPosition = Vector3.zero;
+        // Create or reuse collider child
+        Transform colliderTransform = transform.Find("VehicleCollider");
+        GameObject colliderChild;
+        
+        if (colliderTransform != null)
+        {
+            colliderChild = colliderTransform.gameObject;
+            // Clean up old box collider if present
+            BoxCollider2D oldBox = colliderChild.GetComponent<BoxCollider2D>();
+            if (oldBox != null) DestroyImmediate(oldBox);
+        }
+        else
+        {
+            colliderChild = new GameObject("VehicleCollider");
+            colliderChild.transform.SetParent(transform);
+            colliderChild.transform.localPosition = Vector3.zero;
+        }
 
-        BoxCollider2D boxCollider = colliderChild.AddComponent<BoxCollider2D>();
+        // Generate accurate polygon collider
+        vehicleCollider = Utility.GeneratePolygonCollider(
+            colliderChild, 
+            vehicleTexture, 
+            Utility.GLOBAL_PPU, 
+            2, 
+            0.1f, 
+            Utility.ColliderGenMode.Accurate
+        );
 
-        // EDITED: Calculate size based on bounding box of visible pixels
-        float pixelWidth = (maxX - minX + 1);
-        float pixelHeight = (maxY - minY + 1);
-        float width = pixelWidth / Utility.GLOBAL_PPU;
-        float height = pixelHeight / Utility.GLOBAL_PPU;
+        // Update rigidbody settings (only if rb exists - might be in edit mode)
+        if (rb != null)
+        {
+            rb.mass = totalMass;
+            rb.drag = 0.1f;
+            rb.angularDrag = 0.5f;
+            rb.interpolation = RigidbodyInterpolation2D.Interpolate;
+            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        }
 
-        // EDITED: Calculate offset (bounding box center relative to sprite center)
-        float centerX = vehicleTexture.width / 2f;
-        float centerY = vehicleTexture.height / 2f;
-        float boundingCenterX = (minX + maxX) / 2f;
-        float boundingCenterY = (minY + maxY) / 2f;
-        float offsetX = (boundingCenterX - centerX) / Utility.GLOBAL_PPU;
-        float offsetY = (boundingCenterY - centerY) / Utility.GLOBAL_PPU;
-
-        boxCollider.size = new Vector2(width, height);
-        boxCollider.offset = new Vector2(offsetX, offsetY);
-
-        vehicleCollider = boxCollider;
-
-        // Use same friction material as asteroids
-        vehicleCollider.sharedMaterial = Utility.GetFrictionMaterial();
-
-        // Update rigidbody mass (already created in Awake)
-        rb.mass = totalMass;
-
-        // Match asteroid physics settings exactly
-        rb.drag = 0.1f;
-        rb.angularDrag = 0.5f;
-        rb.interpolation = RigidbodyInterpolation2D.Interpolate;
-        rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
-
-        Debug.Log($"Vehicle '{spriteName}' loaded: mass={totalMass}, pixels={filledPixels}, collider size={boxCollider.size}, offset={boxCollider.offset}, bounds=[{minX},{minY}] to [{maxX},{maxY}]");
+        Debug.Log($"Vehicle '{spriteName}' loaded: mass={totalMass}, pixels={filledPixels}");
+        Debug.Log($"Vehicle Dimensions: Texture {vehicleTexture.width}x{vehicleTexture.height}, PPU={Utility.GLOBAL_PPU}");
     }
 
+    // COMPONENT SYSTEM METHODS
+
+    public void ApplyChassisChanges()
+    {
+        Debug.Log($"Applying chassis changes for {gameObject.name}...");
+        if (chassisConfig == null)
+        {
+            Debug.LogWarning("No chassis config assigned!");
+            return;
+        }
+
+        // CRITICAL: Always reload vehicle sprite to ensure PPU/Scale changes are applied
+        LoadAndSetupVehicle();
+        
+        if (vehicleTexture == null)
+        {
+            Debug.LogError("Failed to load vehicle texture! Cannot create component slots.");
+            return;
+        }
+
+        // Clear existing slot objects
+        ClearComponentSlots();
+
+        // Create Components parent if it doesn't exist
+        componentsParent = transform.Find("Components");
+        if (componentsParent == null)
+        {
+            GameObject componentsObj = new GameObject("Components");
+            componentsObj.transform.SetParent(transform);
+            componentsObj.transform.localPosition = Vector3.zero;
+            componentsParent = componentsObj.transform;
+        }
+
+        // Clear lists
+        primarySlots.Clear();
+        secondarySlots.Clear();
+        specializedSlots.Clear();
+
+        // Create slot objects from config
+        foreach (var slotData in chassisConfig.chassisData.componentSlots)
+        {
+            CreateSlotObject(slotData);
+        }
+
+        Debug.Log($"Applied chassis changes: {primarySlots.Count} primary, {secondarySlots.Count} secondary, {specializedSlots.Count} specialized slots");
+        
+        // Trigger component loading for any existing components
+        RefreshAllComponents();
+    }
+    
+    private void RefreshAllComponents()
+    {
+        if (componentsParent == null) return;
+        
+        // Find all VComponents under the components parent
+        VComponent[] components = componentsParent.GetComponentsInChildren<VComponent>(true);
+        foreach (var component in components)
+        {
+            // Trigger reload
+            component.ReloadMetadata();
+        }
+    }
+
+    private void CreateSlotObject(ComponentSlotData slotData)
+    {
+        string slotName = $"{slotData.slotType} Slot {slotData.slotIndex}";
+        
+        // Check if slot already exists
+        Transform existingSlot = componentsParent.Find(slotName);
+        GameObject slotObj;
+        
+        if (existingSlot != null)
+        {
+            slotObj = existingSlot.gameObject;
+        }
+        else
+        {
+            slotObj = new GameObject(slotName);
+            slotObj.transform.SetParent(componentsParent);
+        }
+
+        // Position slot based on pixel position
+        // The slot position in the editor is in pixel coordinates relative to the canvas
+        // We need to convert this to world coordinates relative to the vehicle center
+        
+        if (vehicleTexture != null)
+        {
+            // Vehicle sprite is created with pivot at (0.5, 0.5) of the texture
+            // So the center of the texture is at (0, 0) in local space
+            float textureCenterX = vehicleTexture.width / 2f;
+            float textureCenterY = vehicleTexture.height / 2f;
+            
+            // Calculate offset from texture center to slot position
+            // RELATIVE POSITIONING UPDATE:
+            // We now treat slotData.pixelPosition as an offset relative to the vehicle center (0,0)
+            // This avoids issues with trimmed sprites having different centers than the original canvas
+            
+            // Convert directly to world units relative to center
+            Vector2 worldOffset = slotData.pixelPosition / Utility.GLOBAL_PPU;
+            
+            slotObj.transform.localPosition = worldOffset;
+            
+            Debug.Log($"Slot '{slotName}' CALCULATION: RelativePixelPos {slotData.pixelPosition} / PPU {Utility.GLOBAL_PPU} = WorldOffset {worldOffset}");
+        }
+        else
+        {
+            Debug.LogWarning($"Vehicle texture not loaded when creating slot {slotName}");
+            slotObj.transform.localPosition = Vector3.zero;
+        }
+        
+        slotObj.transform.localRotation = Quaternion.identity;
+
+        // Add to appropriate list
+        switch (slotData.slotType)
+        {
+            case ComponentSlotType.Primary:
+                primarySlots.Add(slotObj.transform);
+                break;
+            case ComponentSlotType.Secondary:
+                secondarySlots.Add(slotObj.transform);
+                break;
+            case ComponentSlotType.Specialized:
+                specializedSlots.Add(slotObj.transform);
+                break;
+        }
+
+        // Setup any existing component on this slot
+        VComponent existingComponent = slotObj.GetComponentInChildren<VComponent>();
+        if (existingComponent != null)
+        {
+            existingComponent.SetupComponent(this, slotData);
+        }
+    }
+
+    private void ClearComponentSlots()
+    {
+        if (componentsParent == null) return;
+
+        // Don't destroy components, just clear the lists
+        // The slot objects will be reused or recreated
+        primarySlots.Clear();
+        secondarySlots.Clear();
+        specializedSlots.Clear();
+    }
+
+    private void SetupExistingComponents()
+    {
+        // Find components parent
+        componentsParent = transform.Find("Components");
+        if (componentsParent == null) return;
+
+        // Find all slot transforms and categorize them
+        foreach (Transform slotTransform in componentsParent)
+        {
+            string slotName = slotTransform.name;
+            
+            if (slotName.StartsWith("Primary"))
+            {
+                primarySlots.Add(slotTransform);
+            }
+            else if (slotName.StartsWith("Secondary"))
+            {
+                secondarySlots.Add(slotTransform);
+            }
+            else if (slotName.StartsWith("Specialized"))
+            {
+                specializedSlots.Add(slotTransform);
+            }
+
+            // Setup components in this slot
+            VComponent component = slotTransform.GetComponentInChildren<VComponent>();
+            if (component != null && chassisConfig != null)
+            {
+                // Find matching slot data
+                foreach (var slotData in chassisConfig.chassisData.componentSlots)
+                {
+                    string expectedName = $"{slotData.slotType} Slot {slotData.slotIndex}";
+                    if (slotName == expectedName)
+                    {
+                        component.SetupComponent(this, slotData);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Activate/deactivate all components
+    public void ActivateAllComponents()
+    {
+        ActivateComponentsInSlots(primarySlots);
+        ActivateComponentsInSlots(secondarySlots);
+        ActivateComponentsInSlots(specializedSlots);
+    }
+
+    public void DeactivateAllComponents()
+    {
+        DeactivateComponentsInSlots(primarySlots);
+        DeactivateComponentsInSlots(secondarySlots);
+        DeactivateComponentsInSlots(specializedSlots);
+    }
+
+    private void ActivateComponentsInSlots(List<Transform> slots)
+    {
+        foreach (var slot in slots)
+        {
+            VComponent component = slot.GetComponentInChildren<VComponent>();
+            if (component != null)
+            {
+                component.ActivateComponent();
+            }
+        }
+    }
+
+    private void DeactivateComponentsInSlots(List<Transform> slots)
+    {
+        foreach (var slot in slots)
+        {
+            VComponent component = slot.GetComponentInChildren<VComponent>();
+            if (component != null)
+            {
+                component.DeactivateComponent();
+            }
+        }
+    }
+
+    // Collision handling
     protected virtual void OnCollisionEnter2D(Collision2D collision)
     {
-        // Check both the collision GameObject and its parent for Planet component
         Planet planet = collision.gameObject.GetComponent<Planet>();
         if (planet == null && collision.gameObject.transform.parent != null)
         {
@@ -185,13 +429,11 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         if (planet != null)
         {
             atmosphericPhysics?.OnPlanetCollisionEnter();
-            Debug.Log($"[{gameObject.name}] CollisionEnter with planet - grounded={atmosphericPhysics?.IsGrounded}");
         }
     }
 
     protected virtual void OnCollisionStay2D(Collision2D collision)
     {
-        // Check both the collision GameObject and its parent for Planet component
         Planet planet = collision.gameObject.GetComponent<Planet>();
         if (planet == null && collision.gameObject.transform.parent != null)
         {
@@ -201,13 +443,11 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         if (planet != null)
         {
             atmosphericPhysics?.OnPlanetCollisionStay();
-            // Don't log - too spammy
         }
     }
 
     protected virtual void OnCollisionExit2D(Collision2D collision)
     {
-        // Check both the collision GameObject and its parent for Planet component
         Planet planet = collision.gameObject.GetComponent<Planet>();
         if (planet == null && collision.gameObject.transform.parent != null)
         {
@@ -217,7 +457,6 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         if (planet != null)
         {
             atmosphericPhysics?.OnPlanetCollisionExit();
-            Debug.Log($"[{gameObject.name}] CollisionExit with planet - grounded={atmosphericPhysics?.IsGrounded}");
         }
     }
 
@@ -257,4 +496,4 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 
         Debug.Log($"Placed {gameObject.name} on {planet.name}");
     }
-}
+} 

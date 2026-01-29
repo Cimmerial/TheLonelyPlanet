@@ -3,8 +3,8 @@ using System.Collections.Generic;
 
 public static class Utility
 {
-    public static int GLOBAL_PPU = 200;
-    public static float G = .0001f;
+    public static int GLOBAL_PPU = 50;
+    public static float G = .0016f;
     public static float GRAVITY_TIMESCALE = 0.05f;
     
     // Cache the physics material so we only create it once
@@ -43,6 +43,8 @@ public static class Utility
         return _cachedFrictionMaterial;
     }
 
+    public enum ColliderGenMode { Accurate, Legacy }
+
     /// <summary>
     /// Generates a PolygonCollider2D that matches the shape of a texture
     /// </summary>
@@ -51,7 +53,8 @@ public static class Utility
         Texture2D texture, 
         float pixelsPerUnit,
         int edgeSimplification = 2,
-        float alphaThreshold = 0.1f
+        float alphaThreshold = 0.1f,
+        ColliderGenMode mode = ColliderGenMode.Accurate
     )
     {
         PolygonCollider2D polygonCollider = gameObject.GetComponent<PolygonCollider2D>();
@@ -64,7 +67,15 @@ public static class Utility
         polygonCollider.sharedMaterial = GetFrictionMaterial();
         
         // Trace the outline of the texture
-        Vector2[][] paths = TraceTextureOutline(texture, pixelsPerUnit, edgeSimplification, alphaThreshold);
+        Vector2[][] paths;
+        if (mode == ColliderGenMode.Legacy)
+        {
+            paths = TraceTextureOutlineLegacy(texture, pixelsPerUnit, edgeSimplification, alphaThreshold);
+        }
+        else
+        {
+            paths = TraceTextureOutlineAccurate(texture, pixelsPerUnit, edgeSimplification, alphaThreshold);
+        }
         
         // Set the paths on the polygon collider
         polygonCollider.pathCount = paths.Length;
@@ -77,10 +88,9 @@ public static class Utility
     }
     
     /// <summary>
-    /// Traces the outline of a texture to create polygon paths
-    /// Uses marching squares algorithm to find edges
+    /// Grid-Edge Tracing (Surrounds Pixels) - Accurate, wraps around pixels
     /// </summary>
-    private static Vector2[][] TraceTextureOutline(
+    private static Vector2[][] TraceTextureOutlineAccurate(
         Texture2D texture, 
         float pixelsPerUnit,
         int simplification,
@@ -103,11 +113,222 @@ public static class Utility
             }
         }
         
-        // Find all edge pixels using marching squares
-        List<Vector2> edgePoints = new List<Vector2>();
-        bool[,] visited = new bool[width, height];
+        List<List<Vector2>> allPaths = new List<List<Vector2>>();
+        HashSet<string> visitedEdges = new HashSet<string>();
+
+        // Scan for untraced boundaries
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                if (solidMap[x, y])
+                {
+                    // Check Left Edge
+                    if (x == 0 || !solidMap[x - 1, y])
+                    {
+                        // Found a boundary (Solid on Right, Empty/Bounds on Left)
+                        // Edge is from (x, y) to (x, y+1)
+                        string edgeKey = $"{x},{y}_UP";
+                        if (!visitedEdges.Contains(edgeKey))
+                        {
+                             // Trace this loop
+                             List<Vector2> path = TraceGridLoop(solidMap, x, y, width, height, visitedEdges);
+                             if (path.Count > 2)
+                             {
+                                 // Simplify
+                                 if (simplification > 1) 
+                                     path = SimplifyPathAccurate(path, simplification);
+                                     
+                                 // Convert to World
+                                 for (int k = 0; k < path.Count; k++)
+                                 {
+                                     path[k] = new Vector2(
+                                         (path[k].x - centerX) / pixelsPerUnit,
+                                         (path[k].y - centerY) / pixelsPerUnit
+                                     );
+                                 }
+                                 allPaths.Add(path);
+                             }
+                        }
+                    }
+                }
+            }
+        }
         
-        // Find starting point (first solid pixel from top-left)
+        if (allPaths.Count == 0)
+        {
+             return new Vector2[][] { CreateFallbackBox(width, height, centerX, centerY, pixelsPerUnit) };
+        }
+        
+        // Convert List<List<Vector2>> to Vector2[][]
+        Vector2[][] result = new Vector2[allPaths.Count][];
+        for (int i = 0; i < allPaths.Count; i++)
+        {
+            result[i] = allPaths[i].ToArray();
+        }
+        
+        return result;
+    }
+    
+    private static List<Vector2> TraceGridLoop(bool[,] solidMap, int startX, int startY, int width, int height, HashSet<string> visitedEdges)
+    {
+        List<Vector2> loop = new List<Vector2>();
+        
+        // Start vertex
+        Vector2Int current = new Vector2Int(startX, startY);
+        // Initial Direction: UP (0, 1)
+        Vector2Int dir = new Vector2Int(0, 1);
+        
+        Vector2Int startVertex = current;
+        Vector2Int startDir = dir;
+        
+        bool firstMove = true;
+        
+        int watchdog = 0;
+        int maxSteps = width * height * 4;
+        
+        while (watchdog < maxSteps)
+        {
+            loop.Add(current);
+            
+            // Mark edge as visited
+            string edgeKey = $"{current.x},{current.y}_{GetDirName(dir)}";
+            visitedEdges.Add(edgeKey);
+            
+            // Move forward
+            current += dir;
+            
+            if (!firstMove && current == startVertex && dir == startDir)
+            {
+                break; // Completed loop
+            }
+            firstMove = false;
+            
+            bool frontRightSolid = IsSolid(solidMap, current, dir, true, width, height); // Front Right
+            bool frontLeftSolid = IsSolid(solidMap, current, dir, false, width, height); // Front Left
+            
+            if (frontRightSolid)
+            {
+                if (frontLeftSolid)
+                {
+                    // Concave/Internal - Turn Left
+                    dir = TurnLeft(dir);
+                }
+                else
+                {
+                     // Straight
+                }
+            }
+            else
+            {
+                // Convex - Turn Right
+                dir = TurnRight(dir);
+            }
+            
+            watchdog++;
+        }
+        
+        // Remove duplicate end point if added
+        if (loop.Count > 1 && loop[loop.Count - 1] == loop[0])
+            loop.RemoveAt(loop.Count - 1);
+            
+        return loop;
+    }
+    
+    private static bool IsSolid(bool[,] map, Vector2Int vertex, Vector2Int dir, bool isRightSide, int w, int h)
+    {
+        int px = 0, py = 0;
+        
+        if (dir.x == 0 && dir.y == 1) // UP
+        {
+            px = isRightSide ? vertex.x : vertex.x - 1;
+            py = vertex.y;
+        }
+        else if (dir.x == 1 && dir.y == 0) // RIGHT
+        {
+            px = vertex.x;
+            py = isRightSide ? vertex.y - 1 : vertex.y;
+        }
+        else if (dir.x == 0 && dir.y == -1) // DOWN
+        {
+            px = isRightSide ? vertex.x - 1 : vertex.x;
+            py = vertex.y - 1;
+        }
+        else if (dir.x == -1 && dir.y == 0) // LEFT
+        {
+            px = vertex.x - 1;
+            py = isRightSide ? vertex.y : vertex.y - 1;
+        }
+        
+        if (px < 0 || px >= w || py < 0 || py >= h) return false;
+        return map[px, py];
+    }
+    
+    private static Vector2Int TurnLeft(Vector2Int d) => new Vector2Int(-d.y, d.x);
+    private static Vector2Int TurnRight(Vector2Int d) => new Vector2Int(d.y, -d.x);
+    
+    private static string GetDirName(Vector2Int d)
+    {
+        if (d.x == 0 && d.y == 1) return "UP";
+        if (d.x == 1 && d.y == 0) return "RIGHT";
+        if (d.x == 0 && d.y == -1) return "DOWN";
+        return "LEFT";
+    }
+    
+    // Simplifies path by removing collinear points
+    private static List<Vector2> SimplifyPathAccurate(List<Vector2> points, int tolerance)
+    {
+        if (points.Count < 3) return points;
+        
+        List<Vector2> simplified = new List<Vector2>();
+        simplified.Add(points[0]);
+        
+        for (int i = 1; i < points.Count - 1; i++)
+        {
+            Vector2 p1 = points[i-1];
+            Vector2 p2 = points[i];
+            Vector2 p3 = points[i+1];
+            
+            // Check if p2 is on the line between p1 and p3
+            Vector2 dir1 = (p2 - p1).normalized;
+            Vector2 dir2 = (p3 - p2).normalized;
+            
+            // If directions are effectively the same, skip p2
+            if (Vector2.Dot(dir1, dir2) < 0.99f)
+            {
+                simplified.Add(p2);
+            }
+        }
+        
+        simplified.Add(points[points.Count - 1]);
+        
+        return simplified;
+    }
+
+    /// <summary>
+    /// Legacy Marching Squares (Pixel Centers) - Fast, rougher
+    /// </summary>
+    private static Vector2[][] TraceTextureOutlineLegacy(
+        Texture2D texture, 
+        float pixelsPerUnit,
+        int simplification,
+        float alphaThreshold
+    )
+    {
+        int width = texture.width;
+        int height = texture.height;
+        float centerX = width / 2f;
+        float centerY = height / 2f;
+        
+        bool[,] solidMap = new bool[width, height];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                solidMap[x, y] = texture.GetPixel(x, y).a > alphaThreshold;
+            }
+        }
+        
         Vector2Int startPoint = Vector2Int.zero;
         bool foundStart = false;
         
@@ -124,21 +345,13 @@ public static class Utility
         }
         
         if (!foundStart)
-        {
-            // Fallback: create a simple box
             return new Vector2[][] { CreateFallbackBox(width, height, centerX, centerY, pixelsPerUnit) };
-        }
+            
+        List<Vector2> edgePoints = TraceOutline(solidMap, startPoint, width, height);
         
-        // Trace the outline
-        edgePoints = TraceOutline(solidMap, startPoint, width, height);
-        
-        // Simplify the outline
         if (simplification > 1)
-        {
-            edgePoints = SimplifyPath(edgePoints, simplification);
-        }
-        
-        // Convert to world coordinates (centered and scaled)
+            edgePoints = SimplifyPathLegacy(edgePoints, simplification);
+            
         Vector2[] worldPoints = new Vector2[edgePoints.Count];
         for (int i = 0; i < edgePoints.Count; i++)
         {
@@ -150,10 +363,7 @@ public static class Utility
         
         return new Vector2[][] { worldPoints };
     }
-    
-    /// <summary>
-    /// Checks if a pixel has at least one empty neighbor
-    /// </summary>
+
     private static bool HasEmptyNeighbor(bool[,] solidMap, int x, int y, int width, int height)
     {
         for (int dy = -1; dy <= 1; dy++)
@@ -166,7 +376,7 @@ public static class Utility
                 int ny = y + dy;
                 
                 if (nx < 0 || nx >= width || ny < 0 || ny >= height)
-                    return true; // Edge of texture counts as empty
+                    return true;
                 
                 if (!solidMap[nx, ny])
                     return true;
@@ -175,14 +385,10 @@ public static class Utility
         return false;
     }
     
-    /// <summary>
-    /// Traces the outline of a shape starting from a given point
-    /// </summary>
     private static List<Vector2> TraceOutline(bool[,] solidMap, Vector2Int start, int width, int height)
     {
         List<Vector2> outline = new List<Vector2>();
         
-        // Directions: right, down, left, up
         Vector2Int[] directions = new Vector2Int[]
         {
             new Vector2Int(1, 0),   // right
@@ -195,14 +401,13 @@ public static class Utility
         int direction = 0; // Start going right
         outline.Add(current);
         
-        int maxIterations = width * height; // Safety limit
+        int maxIterations = width * height;
         int iterations = 0;
         
         do
         {
             bool foundNext = false;
             
-            // Try to turn right first (follow the edge)
             for (int i = 0; i < 4; i++)
             {
                 int checkDir = (direction - 1 + i + 4) % 4;
@@ -230,11 +435,8 @@ public static class Utility
         
         return outline;
     }
-    
-    /// <summary>
-    /// Simplifies a path by removing every Nth point
-    /// </summary>
-    private static List<Vector2> SimplifyPath(List<Vector2> points, int step)
+
+    private static List<Vector2> SimplifyPathLegacy(List<Vector2> points, int step)
     {
         if (points.Count <= step * 2) return points;
         
@@ -246,10 +448,7 @@ public static class Utility
         
         return simplified;
     }
-    
-    /// <summary>
-    /// Creates a fallback box collider if outline tracing fails
-    /// </summary>
+
     private static Vector2[] CreateFallbackBox(int width, int height, float centerX, float centerY, float pixelsPerUnit)
     {
         float halfWidth = width / (2f * pixelsPerUnit);

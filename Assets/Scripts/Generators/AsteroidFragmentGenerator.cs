@@ -396,7 +396,13 @@ public class AsteroidFragmentGenerator
  )
     {
         // Create new GameObject
-        GameObject fragmentObj = new GameObject($"AsteroidFragment");
+        GameObject fragmentObj = new GameObject($"FRAG - {0}/{0}"); // Will update name after setup
+        
+        // Parent to "FRAGMENTS" container
+        GameObject container = GameObject.Find("FRAGMENTS");
+        if (container == null) container = new GameObject("FRAGMENTS");
+        fragmentObj.transform.SetParent(container.transform);
+        
         fragmentObj.transform.position = fragmentData.worldPosition;
 
         // Calculate fragment mass
@@ -432,7 +438,8 @@ public class AsteroidFragmentGenerator
                 fragmentData.fragmentTexture,
                 Utility.GLOBAL_PPU,
                 colliderSimplification,
-                0.1f
+                0.1f,
+                Utility.ColliderGenMode.Legacy
             );
 
             // Verify collider has valid paths
@@ -473,6 +480,8 @@ public class AsteroidFragmentGenerator
         asteroidComponent.SetMass(fragmentMass);
 
         Debug.Log($"Fragment spawned: mass={fragmentMass}, velocity={velocity}, angularVel={newRotationSpeed}");
+
+        fragmentObj.name = $"FRAG - {asteroidComponent.AccumulatedForce:F0}/{asteroidComponent.BreakThreshold:F0}";
 
         return fragmentObj;
     }

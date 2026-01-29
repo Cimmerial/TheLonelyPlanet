@@ -136,5 +136,8 @@
 
 ### WED 1.28.26
 - Will add ideas to archive.
-
 - ok and i want to add a new component system , i have much of it coded up, but i want to first add the digger as its simple. firstly there are three component slot types, primary, secondary, and specialized, for now just add the option for me to add within the sprite creator the points for these primary and secondary components. it should be on a pixel border, allowed to be on halves though. i should be able to specify the direction too. then create another pixel editor mode called like 'component' where i can sketch components and set the type as well as the center point of the component. the idea is i can attach differnt components to vehicles, and they snap into place based on the slot. then we need a vehicle editor too. opposed to just getting and applying the sprite during runtime, add a button enar the sprite name called 'apply vehicle chassis changes' where it applies the sprite and creates the correct component list sizes based on the ampunt of each component type. and createa. child object 'components' where it has more children called like 'Primary slot 1' 'Secondary slot 3' ... then i can easily go in and make the component object and drag it as a child and its setup automatically under that vehicle. and the vechilde should eb able to run 'activatecomponent' and whatnot. (will cost somethign at some point but for now just run it). have the components flash in and out of black quickly when being used. to start, allow me to hold E to activate all component slots at once for testing. will be using the digger. lmk any other changes needed.
+- I need to blow up the size of the universe where pixel are all 4x bigger that way physics collisions work better.
+
+### THU 1.29.26
+- 

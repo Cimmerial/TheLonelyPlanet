@@ -1,19 +1,18 @@
 // Assets/Scripts/Vehicles/Crawler.cs
 using UnityEngine;
+using System.Collections.Generic;
 
-/// <summary>
-/// Ground vehicle that moves along planet surfaces
-/// Uses Dynamic rigidbody like asteroids - no kinematic switching
-/// </summary>
 public class Crawler : Vehicle
 {
     [Header("Crawler Settings")]
     [SerializeField] private float movementSpeed = 2f;
     [SerializeField] private bool usePlayerInput = true;
+    
     [Header("Grounding Detection")]
     [SerializeField] private float groundCheckDistance = 2f;
 
     private float moveInput = 0f;
+    private bool lastFlipState = false; // Track sprite flip state
 
     protected override void Start()
     {
@@ -26,31 +25,28 @@ public class Crawler : Vehicle
 
         moveInput = Input.GetAxis("Horizontal");
 
-        // EDITED: Use raycast-based grounding check
-        bool isGrounded = CheckGroundedSimple(); // EDITED
+        bool isGrounded = CheckGroundedSimple();
 
-        // Only move when grounded
-        if (isGrounded && Mathf.Abs(moveInput) > 0.01f) ApplyDynamicMovement();
+        if (isGrounded && Mathf.Abs(moveInput) > 0.01f) 
+        {
+            ApplyDynamicMovement();
+        }
     }
 
-    // ADDED: Simple raycast-based grounding check
     private bool CheckGroundedSimple()
     {
         Planet planet = atmosphericPhysics?.FindNearestPlanet();
         if (planet == null) return false;
 
-        // Calculate distance from planet surface
         Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
         float distanceFromCenter = toPlanet.magnitude;
         float planetRadius = planet.GetRadius();
         float distanceFromSurface = distanceFromCenter - planetRadius;
 
-        // Convert pixel threshold to world units
         float groundCheckWorld = groundCheckDistance / Utility.GLOBAL_PPU;
 
         bool grounded = distanceFromSurface <= groundCheckWorld;
 
-        // Debug visualization
         if (grounded)
         {
             Debug.DrawLine(transform.position, planet.transform.position, Color.green);
@@ -68,34 +64,91 @@ public class Crawler : Vehicle
             return;
         }
 
-        // Calculate movement direction (tangent to planet surface)
         Vector2 toPlanet = (Vector2)planet.transform.position - (Vector2)transform.position;
         Vector2 tangent = new Vector2(-toPlanet.y, toPlanet.x).normalized;
 
-        // Flip sprite based on movement direction
+        bool shouldFlip = false;
         if (vehicleSpriteRenderer != null)
         {
             if (moveInput > 0.01f)
             {
                 vehicleSpriteRenderer.flipX = false;
+                shouldFlip = false;
             }
             else if (moveInput < -0.01f)
             {
                 vehicleSpriteRenderer.flipX = true;
+                shouldFlip = true;
+            }
+            else
+            {
+                shouldFlip = vehicleSpriteRenderer.flipX;
+            }
+            
+            // If flip state changed, mirror components
+            if (shouldFlip != lastFlipState)
+            {
+                MirrorComponents(shouldFlip);
+                lastFlipState = shouldFlip;
             }
         }
 
-        // Apply force along the surface tangent (amplify/diminish planet rotation)
         Vector2 moveForce = tangent * moveInput * movementSpeed * rb.mass;
         rb.AddForce(moveForce, ForceMode2D.Force);
 
-        // Debug.Log($"[{gameObject.name}] Applied force: {moveForce}, tangent: {tangent}, moveInput: {moveInput}");
-
-        // Debug visualization
         Debug.DrawRay(transform.position, tangent * moveInput * 0.5f, Color.yellow);
     }
+    
+    private Dictionary<Transform, Vector3> initialSlotPositions = new Dictionary<Transform, Vector3>();
+    private bool initializedSlots = false;
 
+    private void InitializeSlotCache()
+    {
+        if (componentsParent == null || initializedSlots) return;
 
+        initialSlotPositions.Clear();
+        foreach (Transform slot in componentsParent)
+        {
+            initialSlotPositions[slot] = slot.localPosition;
+        }
+        initializedSlots = true;
+    }
+
+    private void MirrorComponents(bool flipped)
+    {
+        if (componentsParent == null) return;
+        
+        // Ensure cache is initialized
+        if (!initializedSlots) InitializeSlotCache();
+        
+        // Mirror all component slots horizontally
+        foreach (Transform slot in componentsParent)
+        {
+            if (!initialSlotPositions.ContainsKey(slot)) continue;
+
+            Vector3 originalPos = initialSlotPositions[slot];
+            
+            float targetX = flipped ? -originalPos.x : originalPos.x;
+            
+            // Apply new position
+            // Force Z to be -0.1f to ensure visibility over chassis (closer to camera)
+            slot.localPosition = new Vector3(targetX, originalPos.y, -0.1f);
+            
+            // Rotate the slot itself to handle directionality
+            if (flipped)
+            {
+                // Rotate 180 degrees around Y axis to mirror
+                slot.localRotation = Quaternion.Euler(0, 180, 0);
+            }
+            else
+            {
+                // Restore identity rotation
+                slot.localRotation = Quaternion.identity;
+            }
+            
+            // We no longer need to flip the sprite renderer manually as the parent rotation handles it
+        }
+    }
 
     public void SetMoveInput(float input)
     {
@@ -105,11 +158,20 @@ public class Crawler : Vehicle
     protected override void OnCollisionEnter2D(Collision2D collision)
     {
         base.OnCollisionEnter2D(collision);
-        // check building/resource collisions for pickup/dropoff
     }
 
     private void Update()
     {
+        // Component activation testing - hold E to activate all components
+        if (Input.GetKey(KeyCode.E))
+        {
+            ActivateAllComponents();
+        }
+        else
+        {
+            DeactivateAllComponents();
+        }
+
         // Debug info
         if (Input.GetKeyDown(KeyCode.G))
         {
@@ -125,20 +187,19 @@ public class Crawler : Vehicle
                       $"Mass: {rb?.mass:F2}, " +
                       $"Drag: {rb?.drag:F2}, " +
                       $"Distance: {currentDist:F3}, " +
-                      $"MoveInput: {moveInput}");
+                      $"MoveInput: {moveInput}, " +
+                      $"Components: P{primarySlots.Count}/S{secondarySlots.Count}/Sp{specializedSlots.Count}");
         }
     }
 
     private void OnDrawGizmos()
     {
-        // Draw grounded status
         if (atmosphericPhysics != null)
         {
             Gizmos.color = atmosphericPhysics.IsGrounded ? Color.green : Color.red;
             Gizmos.DrawWireSphere(transform.position, 0.15f);
         }
 
-        // Draw movement direction when grounded
         Planet planet = atmosphericPhysics?.FindNearestPlanet();
         if (planet != null && atmosphericPhysics != null && atmosphericPhysics.IsGrounded)
         {

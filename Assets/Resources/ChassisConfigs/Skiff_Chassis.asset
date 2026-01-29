@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0248dc67865684818b4e1cc30ee4644b, type: 3}
+  m_Name: Skiff_Chassis
+  m_EditorClassIdentifier: 
+  chassisData:
+    spriteName: Skiff
+    canvasSize: {x: 10, y: 10}
+    componentSlots:
+    - slotType: 0
+      pixelPosition: {x: 2, y: 0.5}
+      direction: {x: 1, y: 0}
+      slotIndex: 1
