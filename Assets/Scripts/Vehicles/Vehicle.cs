@@ -8,6 +8,13 @@ using System.Collections.Generic;
 /// </summary>
 public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 {
+    // Global control context (set by CameraController when locking to a vehicle)
+    private static Vehicle controlledVehicle;
+    public static Vehicle ControlledVehicle => controlledVehicle;
+    internal static void SetControlledVehicle(Vehicle v) => controlledVehicle = v;
+
+    protected bool IsPlayerControlled => controlledVehicle == this;
+
     [System.Serializable]
     public class VehicleCameraSettings
     {
@@ -78,12 +85,28 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     [SerializeField] private bool placeOnPlanetOnStart = true;
     [SerializeField] private float hoverHeight = 0.0f;
 
+    [Header("Reset To 0 (Space Only)")]
+    [SerializeField] private float resetLinearDamping = 8f;
+    [SerializeField] private float resetAngularDamping = 12f;
+    [SerializeField] private float resetRotationDamping = 10f;
+    [SerializeField] private float resetTargetAngleDegrees = 0f;
+    [SerializeField] private float resetVelocityThreshold = 0.05f;
+    [SerializeField] private float resetAngularVelocityThreshold = 0.5f;
+    [SerializeField] private float resetAngleThreshold = 1f;
+    [SerializeField] private float resetMaxDurationSeconds = 6f;
+
     // IAtmosphericObject implementation
     public Vector2 GetRelativeVelocity() => atmosphericPhysics?.GetRelativeVelocity() ?? Vector2.zero;
     public Vector2 GetPosition() => transform.position;
     public bool IsInAtmosphere() => atmosphericPhysics?.IsInAtmosphere ?? false;
 
     public VehicleCameraSettings CameraSettings => cameraSettings;
+
+    // Reset-to-zero state for UI
+    public bool IsResettingToZero { get; private set; }
+    public float ResetToZeroEstimatedSeconds { get; private set; }
+    public float ResetToZeroElapsedSeconds { get; private set; }
+    public float ResetToZeroProgress01 { get; private set; }
 
     protected virtual void Awake()
     {
@@ -137,6 +160,102 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
 
         // Last attempt (in case FindNearestPlanet was temporarily null)
         PlaceOnNearestPlanet();
+    }
+
+    public bool CanResetToZeroInSpace()
+    {
+        if (rb == null || atmosphericPhysics == null) return false;
+        if (atmosphericPhysics.IsInAtmosphere) return false;
+        return true;
+    }
+
+    [ContextMenu("Reset To 0 (Space)")]
+    public void ResetToZeroInSpace()
+    {
+        if (!CanResetToZeroInSpace())
+        {
+            Debug.Log($"[{gameObject.name}] ResetToZeroInSpace ignored (not in space or missing components)");
+            return;
+        }
+        if (IsResettingToZero) return;
+
+        StartCoroutine(ResetToZeroRoutine());
+    }
+
+    private IEnumerator ResetToZeroRoutine()
+    {
+        IsResettingToZero = true;
+        ResetToZeroElapsedSeconds = 0f;
+
+        float v0 = rb.velocity.magnitude;
+        float w0 = Mathf.Abs(rb.angularVelocity);
+
+        // Estimate time based on exponential decay (clamped).
+        float estV = resetLinearDamping > 0f && v0 > resetVelocityThreshold
+            ? Mathf.Log(Mathf.Max(1.0001f, v0 / resetVelocityThreshold)) / resetLinearDamping
+            : 0f;
+        float estW = resetAngularDamping > 0f && w0 > resetAngularVelocityThreshold
+            ? Mathf.Log(Mathf.Max(1.0001f, w0 / resetAngularVelocityThreshold)) / resetAngularDamping
+            : 0f;
+
+        ResetToZeroEstimatedSeconds = Mathf.Clamp(Mathf.Max(estV, estW, 0.5f), 0.5f, resetMaxDurationSeconds);
+
+        float dt;
+        while (ResetToZeroElapsedSeconds < resetMaxDurationSeconds)
+        {
+            dt = Time.fixedDeltaTime;
+            ResetToZeroElapsedSeconds += dt;
+
+            // Dampen linear velocity
+            if (resetLinearDamping > 0f)
+            {
+                float t = 1f - Mathf.Exp(-resetLinearDamping * dt);
+                rb.velocity = Vector2.Lerp(rb.velocity, Vector2.zero, t);
+            }
+
+            // Dampen angular velocity
+            if (resetAngularDamping > 0f)
+            {
+                float t = 1f - Mathf.Exp(-resetAngularDamping * dt);
+                rb.angularVelocity = Mathf.Lerp(rb.angularVelocity, 0f, t);
+            }
+
+            // Rotate upright (world up) smoothly
+            if (resetRotationDamping > 0f)
+            {
+                float t = 1f - Mathf.Exp(-resetRotationDamping * dt);
+                float nextAngle = Mathf.LerpAngle(rb.rotation, resetTargetAngleDegrees, t);
+                rb.MoveRotation(nextAngle);
+            }
+
+            float vel = rb.velocity.magnitude;
+            float angVel = Mathf.Abs(rb.angularVelocity);
+            float angleErr = Mathf.Abs(Mathf.DeltaAngle(rb.rotation, resetTargetAngleDegrees));
+
+            // Progress heuristic: how far through the estimated decay window we are.
+            float denom = Mathf.Max(0.0001f, ResetToZeroEstimatedSeconds);
+            ResetToZeroProgress01 = Mathf.Clamp01(ResetToZeroElapsedSeconds / denom);
+
+            if (vel <= resetVelocityThreshold && angVel <= resetAngularVelocityThreshold && angleErr <= resetAngleThreshold)
+            {
+                // Snap once at the end (avoid forcing exact zeros every frame).
+                rb.velocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+                rb.MoveRotation(resetTargetAngleDegrees);
+                break;
+            }
+
+            yield return new WaitForFixedUpdate();
+
+            // If we entered atmosphere, abort.
+            if (atmosphericPhysics != null && atmosphericPhysics.IsInAtmosphere)
+            {
+                break;
+            }
+        }
+
+        ResetToZeroProgress01 = 1f;
+        IsResettingToZero = false;
     }
 
     protected virtual void FixedUpdate()

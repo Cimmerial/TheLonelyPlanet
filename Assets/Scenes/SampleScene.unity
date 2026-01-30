@@ -236,7 +236,7 @@ GameObject:
   m_Component:
   - component: {fileID: 70594339}
   - component: {fileID: 70594340}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: ComponentRenderer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -551,7 +551,7 @@ Sprite:
         format: 0
         dimension: 0
       m_DataSize: 80
-      _typelessdata: 8fc2f5bc0ad7233d000000008fc2f53c0ad7233d000000008fc2f5bc0ad723bd000000008fc2f53c0ad723bd000000000000000000000000000000000000000000000000000000000000000000000000
+      _typelessdata: 8fc2f5bc0ad7233d000000008fc2f53c0ad7233d000000008fc2f5bc0ad723bd000000008fc2f53c0ad723bd00000000000000000000803f0000803f0000803f00000000000000000000803f00000000
     m_Bindpose: []
     textureRect:
       serializedVersion: 2
@@ -576,7 +576,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 113391093}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Secondary Slot 2
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -697,7 +697,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 281648066}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Components
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -741,7 +741,7 @@ GameObject:
   m_Component:
   - component: {fileID: 355723917}
   - component: {fileID: 355723916}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Crawler_Skiff
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -790,6 +790,14 @@ MonoBehaviour:
     distanceAtMaxZoom: 40
   placeOnPlanetOnStart: 1
   hoverHeight: 0.1
+  resetLinearDamping: 8
+  resetAngularDamping: 12
+  resetRotationDamping: 10
+  resetTargetAngleDegrees: 0
+  resetVelocityThreshold: 0.05
+  resetAngularVelocityThreshold: 0.5
+  resetAngleThreshold: 1
+  resetMaxDurationSeconds: 6
   movementSpeed: 4
   usePlayerInput: 1
   groundCheckDistance: 4
@@ -820,7 +828,7 @@ GameObject:
   m_Component:
   - component: {fileID: 399974579}
   - component: {fileID: 399974578}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: VehicleCollider
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1010,6 +1018,10 @@ MonoBehaviour:
   vehicleZoomRatio: 5
   uiCanvas: {fileID: 0}
   statusText: {fileID: 0}
+  vehicleUiPanel: {fileID: 0}
+  vehicleUiText: {fileID: 0}
+  resetToZeroButton: {fileID: 0}
+  resetToZeroProgress: {fileID: 0}
 --- !u!1 &584702453
 GameObject:
   m_ObjectHideFlags: 0
@@ -1020,7 +1032,7 @@ GameObject:
   m_Component:
   - component: {fileID: 584702455}
   - component: {fileID: 584702454}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Flier_Pod
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1060,17 +1072,25 @@ MonoBehaviour:
   specializedSlots: []
   totalMass: 43
   cameraSettings:
-    overrideFollowSmoothness: 0
-    followSmoothness: 5
-    overrideZoom: 0
+    overrideFollowSmoothness: 1
+    followSmoothness: 10
+    overrideZoom: 1
     zoomMode: 0
-    vehicleZoomRatio: 12.5
+    vehicleZoomRatio: 2
     minZoom: 6
     maxZoom: 40
     distanceAtMinZoom: 5
     distanceAtMaxZoom: 40
   placeOnPlanetOnStart: 1
   hoverHeight: 0.1
+  resetLinearDamping: 8
+  resetAngularDamping: 12
+  resetRotationDamping: 10
+  resetTargetAngleDegrees: 0
+  resetVelocityThreshold: 0.05
+  resetAngularVelocityThreshold: 0.5
+  resetAngleThreshold: 1
+  resetMaxDurationSeconds: 6
   usePlayerInput: 1
   toggleModeKey: 109
   currentMode: 1
@@ -1196,7 +1216,7 @@ GameObject:
   m_Component:
   - component: {fileID: 676527780}
   - component: {fileID: 676527779}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: VehicleRenderer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1464,7 +1484,7 @@ Sprite:
         format: 0
         dimension: 0
       m_DataSize: 80
-      _typelessdata: 295c8fbd0ad7a33d00000000295c8f3d0ad7a33d00000000295c8fbd0ad7a3bd00000000295c8f3d0ad7a3bd000000000000000000000000000000000000000000000000000000000000000000000000
+      _typelessdata: 295c8fbd0ad7a33d00000000295c8f3d0ad7a33d00000000295c8fbd0ad7a3bd00000000295c8f3d0ad7a3bd00000000000000000000803f0000803f0000803f00000000000000000000803f00000000
     m_Bindpose: []
     textureRect:
       serializedVersion: 2
@@ -1521,7 +1541,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1043474596}
   - component: {fileID: 1043474597}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: ComponentRenderer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1604,7 +1624,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1134198220}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Secondary Slot 1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1635,7 +1655,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1151502557}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Components
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1935,7 +1955,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1421566756}
   - component: {fileID: 1421566755}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: VehicleRenderer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2180,7 +2200,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1578549152}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Primary Slot 1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2484,7 +2504,7 @@ GameObject:
   - component: {fileID: 1707775070}
   - component: {fileID: 1707775072}
   - component: {fileID: 1707775073}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: COMP_DIGGER_V1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2995,7 +3015,7 @@ GameObject:
   - component: {fileID: 1966953833}
   - component: {fileID: 1966953832}
   - component: {fileID: 1966953831}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: COMP_DIGGER_V1 (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -3232,7 +3252,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2083779524}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Primary Slot 1
   m_TagString: Untagged
   m_Icon: {fileID: 0}

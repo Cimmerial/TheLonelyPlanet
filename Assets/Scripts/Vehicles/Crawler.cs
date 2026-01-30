@@ -22,6 +22,7 @@ public class Crawler : Vehicle
     protected override void UpdateVehiclePhysics()
     {
         if (!usePlayerInput) return;
+        if (!IsPlayerControlled) return;
 
         moveInput = Input.GetAxis("Horizontal");
 
@@ -162,16 +163,6 @@ public class Crawler : Vehicle
 
     private void Update()
     {
-        // Component activation testing - hold E to activate all components
-        if (Input.GetKey(KeyCode.E))
-        {
-            ActivateAllComponents();
-        }
-        else
-        {
-            DeactivateAllComponents();
-        }
-
         // Debug info
         if (Input.GetKeyDown(KeyCode.G))
         {

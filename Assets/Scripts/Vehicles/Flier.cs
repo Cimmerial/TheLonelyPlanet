@@ -141,6 +141,7 @@ public class Flier : Vehicle
     private void Update()
     {
         if (!usePlayerInput) return;
+        if (!IsPlayerControlled) return;
 
         // Capture toggle input here so it doesn't get missed between physics ticks.
         if (CanToggleMode && Input.GetKeyDown(toggleModeKey))
@@ -224,6 +225,8 @@ public class Flier : Vehicle
     protected override void UpdateVehiclePhysics()
     {
         if (rb == null || atmosphericPhysics == null) return;
+        if (!usePlayerInput) return;
+        if (!IsPlayerControlled) return;
 
         switch (currentMode)
         {
