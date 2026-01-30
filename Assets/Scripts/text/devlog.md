@@ -144,3 +144,5 @@
 - Dogwash, Blixm
 
 - Resources are color based? where we take a color and make it resource X, then hue/shade it to depict how pure or condensed this resource is. Lighter being better, so good asteroids sparkle. 
+
+- Gotta fix/edit asteroid splitting, make it happen less when they at rest. 

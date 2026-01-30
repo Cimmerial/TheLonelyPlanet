@@ -1212,8 +1212,6 @@ MonoBehaviour:
   hoverHeight: 0.1
   resetTargetAngleDegrees: 0
   resetLinearDamping: 8
-  resetRotationDamping: 10
-  resetAngularDamping: 12
   resetThrustAngleWindowDegrees: 15
   resetVelocityThreshold: 0.05
   resetAngularVelocityThreshold: 0.5
@@ -1621,8 +1619,6 @@ MonoBehaviour:
   hoverHeight: 0.1
   resetTargetAngleDegrees: 0
   resetLinearDamping: 8
-  resetRotationDamping: 10
-  resetAngularDamping: 12
   resetThrustAngleWindowDegrees: 15
   resetVelocityThreshold: 0.05
   resetAngularVelocityThreshold: 0.5
@@ -1634,18 +1630,20 @@ MonoBehaviour:
   allowModeToggleInAtmosphere: 1
   spaceLockDelaySeconds: 2
   stabilization: 1
-  atmosphereThrustUp: 500
-  atmosphereThrustDown: 500
-  atmosphereThrustSide: 400
+  atmosphereThrustUp: 200
+  atmosphereThrustDown: 200
+  atmosphereThrustSide: 100
+  atmosphereMaxSpeedPxPerSecond: 500
   atmosphereMaxSpeed: 10
   atmosphereAltitudeHoldStrength: 200
   atmosphereUprightSpeed: 10
   atmosphereUprightTriggerDegrees: 1
-  spaceThrustUp: 500
+  spaceThrustUp: 200
   spaceThrustDown: 0
   spaceThrustLeft: 0
   spaceThrustRight: 0
-  spaceMaxSpeed: 20
+  spaceMaxSpeedPxPerSecond: 0
+  spaceMaxSpeed: 5
   spaceTurnSpeedDegreesPerSecond: 180
   spaceTurnTorque: 25
   spaceMaxAngularVelocity: 180

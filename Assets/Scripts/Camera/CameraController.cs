@@ -965,7 +965,7 @@ public class CameraController : MonoBehaviour
             vehicleBlips.Clear();
         }
 
-        minimapCircleSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd");
+        minimapCircleSprite = GetOrCreateMinimapCircleSprite();
 
         minimapPanel = new GameObject("MinimapPanel");
         minimapPanel.transform.SetParent(canvasRoot.transform);
@@ -1079,6 +1079,8 @@ public class CameraController : MonoBehaviour
         var img = go.AddComponent<Image>();
         img.color = color;
         img.raycastTarget = false;
+        img.type = Image.Type.Simple;
+        img.preserveAspect = true;
 
         if (circular && minimapCircleSprite != null)
         {
@@ -1086,6 +1088,40 @@ public class CameraController : MonoBehaviour
         }
 
         return rt;
+    }
+
+    private Sprite GetOrCreateMinimapCircleSprite()
+    {
+        if (minimapCircleSprite != null) return minimapCircleSprite;
+
+        const int size = 32;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false);
+        tex.filterMode = FilterMode.Point;
+        tex.wrapMode = TextureWrapMode.Clamp;
+
+        float r = (size - 1) * 0.5f;
+        Vector2 c = new Vector2(r, r);
+
+        // Slightly smaller than full radius so AA edge doesn't clip.
+        float rr = (r - 0.75f) * (r - 0.75f);
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = x - c.x;
+                float dy = y - c.y;
+                float d2 = dx * dx + dy * dy;
+                float a = d2 <= rr ? 1f : 0f;
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        }
+
+        tex.Apply();
+
+        // Pixels-per-unit doesn't matter for UI Images; keep it simple.
+        minimapCircleSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+        return minimapCircleSprite;
     }
 
     private void RefreshMinimapObjects()

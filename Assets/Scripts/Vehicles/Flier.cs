@@ -58,7 +58,11 @@ public class Flier : Vehicle
     [Tooltip("Force (Newtons) applied tangentially when holding A/D in Atmospheric mode.")]
     [SerializeField] private float atmosphereThrustSide = 400f;
 
-    [SerializeField] private float atmosphereMaxSpeed = 10f;
+    [Tooltip("Max speed in Atmospheric mode (px/s).")]
+    [SerializeField] private float atmosphereMaxSpeedPxPerSecond = 500f;
+
+    // Legacy (world units/s). Kept so existing scenes/prefabs migrate cleanly.
+    [SerializeField, HideInInspector] private float atmosphereMaxSpeed = 10f;
 
     [Tooltip("When moving sideways (A/D) without W/S, apply a spring force to maintain a target altitude.")]
     [SerializeField] private float atmosphereAltitudeHoldStrength = 200f;
@@ -75,14 +79,19 @@ public class Flier : Vehicle
     [Tooltip("Force (Newtons) applied along ship down when holding S in Space mode. Default 0 for 'no S'.")]
     [SerializeField] private float spaceThrustDown = 0f;
 
+#pragma warning disable CS0414 // reserved for future component-driven ships
     [Tooltip("Reserved for future use (components). Not mapped in default Space controls.")]
     [SerializeField] private float spaceThrustLeft = 0f;
 
     [Tooltip("Reserved for future use (components). Not mapped in default Space controls.")]
     [SerializeField] private float spaceThrustRight = 0f;
+#pragma warning restore CS0414
 
-    [Tooltip("Max speed in Space mode. Set to 0 to disable speed clamping.")]
-    [SerializeField] private float spaceMaxSpeed = 0f;
+    [Tooltip("Max speed in Space mode (px/s). Set to 0 to disable speed clamping.")]
+    [SerializeField] private float spaceMaxSpeedPxPerSecond = 0f;
+
+    // Legacy (world units/s). Kept so existing scenes/prefabs migrate cleanly.
+    [SerializeField, HideInInspector] private float spaceMaxSpeed = 0f;
 
     [Header("Space Turning (A/D)")]
     [Tooltip("How fast the ship turns (degrees/sec) in Space mode.\nRotation is direct (no angular momentum).")]
@@ -141,6 +150,19 @@ public class Flier : Vehicle
     protected override void Awake()
     {
         base.Awake();
+
+        // Migrate legacy max speeds (world units/s) to px/s.
+        // Previous defaults were ~10 units/s in atmosphere (500 px/s at 50 PPU) and 0 in space (no clamp).
+        if (atmosphereMaxSpeed > 0f && Mathf.Approximately(atmosphereMaxSpeedPxPerSecond, 500f))
+        {
+            atmosphereMaxSpeedPxPerSecond = atmosphereMaxSpeed * Utility.GLOBAL_PPU;
+            atmosphereMaxSpeed = 0f;
+        }
+        if (spaceMaxSpeed > 0f && Mathf.Approximately(spaceMaxSpeedPxPerSecond, 0f))
+        {
+            spaceMaxSpeedPxPerSecond = spaceMaxSpeed * Utility.GLOBAL_PPU;
+            spaceMaxSpeed = 0f;
+        }
 
         if (rb != null)
         {
@@ -428,10 +450,22 @@ public class Flier : Vehicle
 
     private void ClampMotion()
     {
-        float maxSpeed = currentMode == FlightMode.Space ? spaceMaxSpeed : atmosphereMaxSpeed;
-        if (maxSpeed > 0f)
+        float maxSpeedPx = currentMode == FlightMode.Space ? spaceMaxSpeedPxPerSecond : atmosphereMaxSpeedPxPerSecond;
+
+        // Back-compat: if someone still edits the legacy field in the inspector, respect it.
+        if (maxSpeedPx <= 0f)
         {
-            rb.velocity = Vector2.ClampMagnitude(rb.velocity, maxSpeed);
+            float legacyUnits = currentMode == FlightMode.Space ? spaceMaxSpeed : atmosphereMaxSpeed;
+            if (legacyUnits > 0f)
+            {
+                maxSpeedPx = legacyUnits * Utility.GLOBAL_PPU;
+            }
+        }
+
+        if (maxSpeedPx > 0f)
+        {
+            float maxSpeedUnits = maxSpeedPx / Mathf.Max(1f, Utility.GLOBAL_PPU);
+            rb.velocity = Vector2.ClampMagnitude(rb.velocity, maxSpeedUnits);
         }
     }
 }

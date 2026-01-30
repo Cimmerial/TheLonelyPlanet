@@ -92,11 +92,6 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     [Tooltip("Velocity-control gain (1/s). Higher = more aggressive braking when aligned.")]
     [SerializeField] private float resetLinearDamping = 3f;
 
-    [Tooltip("Rotation-control proportional gain (torque per degree). Higher = snappier rotation.")]
-    [SerializeField] private float resetRotationDamping = 8f;
-
-    [Tooltip("Rotation-control derivative gain (torque per deg/s). Higher = less overshoot.")]
-    [SerializeField] private float resetAngularDamping = 2f;
 
     [Tooltip("Only apply thrust when within this many degrees of target direction.")]
     [SerializeField] private float resetThrustAngleWindowDegrees = 15f;
@@ -241,6 +236,9 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         float estBrake = (maxDecel > 0f && v0 > resetVelocityThreshold) ? (v0 / maxDecel) : 0.5f;
         ResetToZeroEstimatedSeconds = Mathf.Clamp(estBrake + 2f, 0.5f, resetMaxDurationSeconds);
 
+        bool brakingPhase = true;
+        Vector2 latchedBrakeDir = v0 > resetVelocityThreshold ? (-rb.velocity.normalized) : Vector2.up;
+
         while (ResetToZeroElapsedSeconds < resetMaxDurationSeconds)
         {
             float dt = Time.fixedDeltaTime;
@@ -258,9 +256,16 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
             // HARD stop rotation: we rotate directly (no angular momentum).
             rb.angularVelocity = 0f;
 
-            // Phase 1: if moving, rotate to face opposite velocity (so forward thrust brakes).
-            // Phase 2: once nearly stopped, rotate upright.
-            Vector2 brakeDir = speed > resetVelocityThreshold * 2f ? (-v.normalized) : Vector2.up;
+            // Phase 1: rotate to face opposite our (initial) velocity and brake until we're near-zero.
+            // Phase 2: once near-zero, rotate upright (world up) WITHOUT referencing velocity (prevents weird spin at low speeds).
+            if (brakingPhase && speed <= resetVelocityThreshold)
+            {
+                // Snap velocity once (prevents tiny residual drift + noisy direction).
+                rb.velocity = Vector2.zero;
+                brakingPhase = false;
+            }
+
+            Vector2 brakeDir = brakingPhase ? latchedBrakeDir : Vector2.up;
             float desiredAngle = Mathf.Atan2(brakeDir.y, brakeDir.x) * Mathf.Rad2Deg - 90f;
 
             float angleError = Mathf.DeltaAngle(rb.rotation, desiredAngle);
@@ -271,9 +276,8 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
             rb.MoveRotation(nextAngle);
             rb.angularVelocity = 0f;
 
-            // Braking thrust: scale force so we approach 0 smoothly instead of overshooting.
-            // Only thrust when we're at least somewhat aligned.
-            if (speed > resetVelocityThreshold)
+            // Braking thrust: only in braking phase.
+            if (brakingPhase && speed > resetVelocityThreshold)
             {
                 float alignment = Vector2.Dot((Vector2)transform.up, brakeDir); // 1 when perfectly aligned
 
