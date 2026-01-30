@@ -21,6 +21,7 @@ public class Crawler : Vehicle
 
     protected override void UpdateVehiclePhysics()
     {
+        if (IsResettingToZero) return;
         if (!usePlayerInput) return;
         if (!IsPlayerControlled) return;
 

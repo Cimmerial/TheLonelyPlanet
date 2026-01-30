@@ -39,9 +39,67 @@ public class CameraController : MonoBehaviour
     [SerializeField] private RectTransform velArrow;
     [SerializeField] private RectTransform relVelArrow;
     [SerializeField] private RectTransform gravityArrow;
+
+    // Top-left minimap
+    private enum MinimapCenterMode { Camera = 0, ControlledVehicle = 1 }
+
+    [SerializeField] private GameObject minimapPanel;
+    [SerializeField] private RectTransform minimapArea;
+    [SerializeField] private RectTransform minimapCameraRect;
+    [SerializeField] private Button minimapZoomInButton;
+    [SerializeField] private Button minimapZoomOutButton;
+
+    [Header("Minimap Settings")]
+    [SerializeField] private bool showMinimap = true;
+    [SerializeField] private MinimapCenterMode minimapCenterMode = MinimapCenterMode.Camera;
+    [SerializeField] private bool minimapShowPlanets = true;
+    [SerializeField] private bool minimapShowMoons = true;
+    [SerializeField] private bool minimapShowAsteroids = true;
+    [SerializeField] private bool minimapShowVehicles = true;
+
+    [Tooltip("World units per minimap pixel (smaller = zoomed in).")]
+    [SerializeField] private float minimapUnitsPerPixel = 0.1f;
+
+    [Tooltip("How often we refresh the object lists (seconds).")]
+    [SerializeField] private float minimapRefreshInterval = 0.5f;
+
+    [Tooltip("Minimum blip size (pixels).")]
+    [SerializeField] private float minimapMinBlipSizePx = 4f;
+
+    [Tooltip("Extra multiplier for planet/moon blip sizes.")]
+    [SerializeField] private float minimapPlanetSizeMultiplier = 1.0f;
+
+    [Tooltip("Extra multiplier for vehicle blip sizes.")]
+    [SerializeField] private float minimapVehicleSizeMultiplier = 1.0f;
+
+    [SerializeField] private Color minimapPlanetColor = new Color(1f, 0.85f, 0.2f, 1f);
+    [SerializeField] private Color minimapMoonColor = new Color(0.4f, 0.8f, 1f, 1f);
+    [SerializeField] private Color minimapAsteroidColor = new Color(0.8f, 0.8f, 0.8f, 1f);
+    [SerializeField] private Color minimapVehicleColor = new Color(0.2f, 1f, 0.2f, 1f);
+    [SerializeField] private Color minimapControlledVehicleColor = new Color(1f, 0.3f, 0.3f, 1f);
+
+    private float nextMinimapRefreshTime;
+    private Planet[] cachedPlanets;
+    private Moon[] cachedMoons;
+    private Asteroid[] cachedAsteroids;
+    private Vehicle[] cachedVehicles;
+
+    private Sprite minimapCircleSprite;
+
+    private readonly System.Collections.Generic.List<RectTransform> planetBlips = new();
+    private readonly System.Collections.Generic.List<RectTransform> moonBlips = new();
+    private readonly System.Collections.Generic.List<RectTransform> asteroidBlips = new();
+    private readonly System.Collections.Generic.List<RectTransform> vehicleBlips = new();
     
     private Camera cam;
     private float targetZoom;
+
+    [Header("Scroll Zoom")]
+    [SerializeField] private bool allowScrollZoomWhenLocked = true;
+    [Tooltip("When you scroll while locked to a planet/vehicle, we temporarily stop auto-zooming and respect your manual zoom.")]
+    [SerializeField] private float lockedScrollZoomOverrideSeconds = 2f;
+
+    private float manualZoomUntilTime;
 
     private void Awake()
     {
@@ -65,6 +123,7 @@ public class CameraController : MonoBehaviour
             EnsureCanvasHasRaycaster(uiCanvas);
             EnsureVehicleControlsUI(uiCanvas);
             EnsureForceDiagramUI(uiCanvas);
+            EnsureMinimapUI(uiCanvas);
         }
     }
 
@@ -145,13 +204,19 @@ public class CameraController : MonoBehaviour
 
             Vector3 movement = new Vector3(horizontal, vertical, 0) * freeMoveSpeed * Time.deltaTime;
             transform.position += movement;
+        }
 
-            // Free zoom
-            float scroll = Input.GetAxis("Mouse ScrollWheel");
-            if (Mathf.Abs(scroll) > 0.01f)
+        // Scroll zoom (allowed in locked views too)
+        float scroll = Input.GetAxis("Mouse ScrollWheel");
+        bool canScrollZoom = currentMode == CameraMode.Free || allowScrollZoomWhenLocked;
+        if (canScrollZoom && Mathf.Abs(scroll) > 0.01f)
+        {
+            targetZoom -= scroll * freeZoomSpeed;
+            targetZoom = Mathf.Clamp(targetZoom, 1f, 80f);
+
+            if (currentMode != CameraMode.Free)
             {
-                targetZoom -= scroll * freeZoomSpeed;
-                targetZoom = Mathf.Clamp(targetZoom, 1f, 50f);
+                manualZoomUntilTime = Time.time + Mathf.Max(0f, lockedScrollZoomOverrideSeconds);
             }
         }
     }
@@ -159,6 +224,8 @@ public class CameraController : MonoBehaviour
     private void UpdateCamera()
     {
         float effectiveFollowSmoothness = followSmoothness;
+
+        bool allowAutoZoom = Time.time >= manualZoomUntilTime;
 
         switch (currentMode)
         {
@@ -185,9 +252,12 @@ public class CameraController : MonoBehaviour
                         transform.rotation = Quaternion.Lerp(transform.rotation, Quaternion.identity, effectiveFollowSmoothness * Time.deltaTime);
                     }
 
-                    // Calculate zoom based on planet radius
-                    float planetRadius = lockedPlanet.Radius;
-                    targetZoom = planetRadius / planetZoomRatio;
+                    // Calculate zoom based on planet radius (unless the user recently scrolled)
+                    if (allowAutoZoom)
+                    {
+                        float planetRadius = lockedPlanet.Radius;
+                        targetZoom = planetRadius / planetZoomRatio;
+                    }
                 }
                 else
                 {
@@ -224,30 +294,33 @@ public class CameraController : MonoBehaviour
                         transform.rotation = Quaternion.Lerp(transform.rotation, Quaternion.identity, effectiveFollowSmoothness * Time.deltaTime);
                     }
 
-                    // Zoom
-                    if (vehicleCamera != null && vehicleCamera.overrideZoom)
+                    // Zoom (unless the user recently scrolled)
+                    if (allowAutoZoom)
                     {
-                        switch (vehicleCamera.zoomMode)
+                        if (vehicleCamera != null && vehicleCamera.overrideZoom)
                         {
-                            case Vehicle.VehicleCameraSettings.ZoomMode.DistanceToNearestGravity:
-                                float dist = FindNearestGravityDistance(lockedVehicle.transform.position);
-                                float t = Mathf.InverseLerp(vehicleCamera.distanceAtMinZoom, vehicleCamera.distanceAtMaxZoom, dist);
-                                targetZoom = Mathf.Lerp(vehicleCamera.minZoom, vehicleCamera.maxZoom, t);
-                                break;
+                            switch (vehicleCamera.zoomMode)
+                            {
+                                case Vehicle.VehicleCameraSettings.ZoomMode.DistanceToNearestGravity:
+                                    float dist = FindNearestGravityDistance(lockedVehicle.transform.position);
+                                    float t = Mathf.InverseLerp(vehicleCamera.distanceAtMinZoom, vehicleCamera.distanceAtMaxZoom, dist);
+                                    targetZoom = Mathf.Lerp(vehicleCamera.minZoom, vehicleCamera.maxZoom, t);
+                                    break;
 
-                            case Vehicle.VehicleCameraSettings.ZoomMode.SpriteSize:
-                            default:
-                                float spriteSize = GetVehicleSpriteSize(lockedVehicle);
-                                float ratio = Mathf.Max(0.0001f, vehicleCamera.vehicleZoomRatio);
-                                targetZoom = spriteSize / ratio;
-                                break;
+                                case Vehicle.VehicleCameraSettings.ZoomMode.SpriteSize:
+                                default:
+                                    float spriteSize = GetVehicleSpriteSize(lockedVehicle);
+                                    float ratio = Mathf.Max(0.0001f, vehicleCamera.vehicleZoomRatio);
+                                    targetZoom = spriteSize / ratio;
+                                    break;
+                            }
                         }
-                    }
-                    else
-                    {
-                        // Default: Calculate zoom based on vehicle sprite size
-                        float spriteSize = GetVehicleSpriteSize(lockedVehicle);
-                        targetZoom = spriteSize / vehicleZoomRatio;
+                        else
+                        {
+                            // Default: Calculate zoom based on vehicle sprite size
+                            float spriteSize = GetVehicleSpriteSize(lockedVehicle);
+                            targetZoom = spriteSize / vehicleZoomRatio;
+                        }
                     }
                 }
                 else
@@ -293,6 +366,7 @@ public class CameraController : MonoBehaviour
 
         UpdateVehiclePanelUI();
         UpdateForceDiagramUI();
+        UpdateMinimapUI();
         
         string text = "";
         
@@ -328,7 +402,7 @@ public class CameraController : MonoBehaviour
                 text += $"\nRadius: {lockedPlanet.Radius:F0}px\n";
                 text += $"Zoom: {cam.orthographicSize:F2}\n";
                 text += $"Rotation Match: <color={(matchRotation ? "#00FF00>ON" : "#FF0000>OFF")}</color>\n";
-                text += "\n[F] Free Camera\n[V] Follow Vehicle\n[T] Toggle Rotation";
+                text += "\n[F] Free Camera\n[V] Follow Vehicle\n[T] Toggle Rotation\n[Mouse Wheel] Zoom";
                 break;
                 
             case CameraMode.LockedToVehicle:
@@ -344,7 +418,7 @@ public class CameraController : MonoBehaviour
 
                 text += $"Zoom: {cam.orthographicSize:F2}\n";
                 text += $"Rotation Match: <color={(matchRotation ? "#00FF00>ON" : "#FF0000>OFF")}</color>\n";
-                text += "\n[F] Free Camera\n[P] Follow Planet\n[T] Toggle Rotation";
+                text += "\n[F] Free Camera\n[P] Follow Planet\n[T] Toggle Rotation\n[Mouse Wheel] Zoom";
                 break;
         }
         
@@ -871,6 +945,383 @@ public class CameraController : MonoBehaviour
         }
     }
 
+    private void EnsureMinimapUI(GameObject canvasRoot)
+    {
+        if (canvasRoot == null) return;
+
+        if (minimapPanel != null)
+        {
+            if (minimapArea != null && minimapCameraRect != null && minimapZoomInButton != null && minimapZoomOutButton != null) return;
+
+            Destroy(minimapPanel);
+            minimapPanel = null;
+            minimapArea = null;
+            minimapCameraRect = null;
+            minimapZoomInButton = null;
+            minimapZoomOutButton = null;
+            planetBlips.Clear();
+            moonBlips.Clear();
+            asteroidBlips.Clear();
+            vehicleBlips.Clear();
+        }
+
+        minimapCircleSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd");
+
+        minimapPanel = new GameObject("MinimapPanel");
+        minimapPanel.transform.SetParent(canvasRoot.transform);
+
+        RectTransform panelRect = minimapPanel.AddComponent<RectTransform>();
+        panelRect.anchorMin = new Vector2(0, 1);
+        panelRect.anchorMax = new Vector2(0, 1);
+        panelRect.pivot = new Vector2(0, 1);
+        panelRect.anchoredPosition = new Vector2(20, -20);
+        panelRect.sizeDelta = new Vector2(260, 260);
+
+        var bg = minimapPanel.AddComponent<Image>();
+        bg.color = new Color(0.1f, 0.1f, 0.15f, 0.85f);
+        bg.raycastTarget = false;
+
+        var outline = minimapPanel.AddComponent<Outline>();
+        outline.effectColor = new Color(0.3f, 0.5f, 0.8f, 0.5f);
+        outline.effectDistance = new Vector2(2, -2);
+
+        // Area
+        GameObject areaObj = new GameObject("Area");
+        areaObj.transform.SetParent(minimapPanel.transform);
+        minimapArea = areaObj.AddComponent<RectTransform>();
+        minimapArea.anchorMin = new Vector2(0, 0);
+        minimapArea.anchorMax = new Vector2(1, 1);
+        minimapArea.offsetMin = new Vector2(10, 10);
+        minimapArea.offsetMax = new Vector2(-10, -40);
+
+        var areaBg = areaObj.AddComponent<Image>();
+        areaBg.color = new Color(0.08f, 0.08f, 0.11f, 0.9f);
+        areaBg.raycastTarget = false;
+
+        minimapPanel.SetActive(showMinimap);
+
+        // Camera rect
+        GameObject camRectObj = new GameObject("CameraRect");
+        camRectObj.transform.SetParent(areaObj.transform);
+        minimapCameraRect = camRectObj.AddComponent<RectTransform>();
+        minimapCameraRect.anchorMin = new Vector2(0.5f, 0.5f);
+        minimapCameraRect.anchorMax = new Vector2(0.5f, 0.5f);
+        minimapCameraRect.pivot = new Vector2(0.5f, 0.5f);
+        minimapCameraRect.anchoredPosition = Vector2.zero;
+        minimapCameraRect.sizeDelta = new Vector2(40, 30);
+
+        var camRectImg = camRectObj.AddComponent<Image>();
+        camRectImg.color = new Color(1f, 1f, 1f, 0.1f);
+        camRectImg.raycastTarget = false;
+
+        var camRectOutline = camRectObj.AddComponent<Outline>();
+        camRectOutline.effectColor = new Color(1f, 1f, 1f, 0.8f);
+        camRectOutline.effectDistance = new Vector2(1, -1);
+
+        // Buttons
+        minimapZoomInButton = CreateMiniButton(minimapPanel.transform, "ZoomIn", "+", new Vector2(-60, 10));
+        minimapZoomOutButton = CreateMiniButton(minimapPanel.transform, "ZoomOut", "-", new Vector2(-20, 10));
+
+        minimapZoomInButton.onClick.RemoveAllListeners();
+        minimapZoomInButton.onClick.AddListener(() => minimapUnitsPerPixel = Mathf.Max(0.01f, minimapUnitsPerPixel * 0.8f));
+
+        minimapZoomOutButton.onClick.RemoveAllListeners();
+        minimapZoomOutButton.onClick.AddListener(() => minimapUnitsPerPixel = Mathf.Min(10f, minimapUnitsPerPixel * 1.25f));
+    }
+
+    private Button CreateMiniButton(Transform parent, string name, string label, Vector2 anchoredPos)
+    {
+        GameObject btnObj = new GameObject(name);
+        btnObj.transform.SetParent(parent);
+        RectTransform rt = btnObj.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(1, 0);
+        rt.anchorMax = new Vector2(1, 0);
+        rt.pivot = new Vector2(1, 0);
+        rt.anchoredPosition = anchoredPos;
+        rt.sizeDelta = new Vector2(30, 22);
+
+        var img = btnObj.AddComponent<Image>();
+        img.color = new Color(0.15f, 0.15f, 0.2f, 1f);
+        img.raycastTarget = true;
+
+        var btn = btnObj.AddComponent<Button>();
+        btn.targetGraphic = img;
+
+        GameObject txtObj = new GameObject("Text");
+        txtObj.transform.SetParent(btnObj.transform);
+        RectTransform txtRt = txtObj.AddComponent<RectTransform>();
+        txtRt.anchorMin = Vector2.zero;
+        txtRt.anchorMax = Vector2.one;
+        txtRt.offsetMin = Vector2.zero;
+        txtRt.offsetMax = Vector2.zero;
+
+        var tmp = txtObj.AddComponent<TextMeshProUGUI>();
+        tmp.text = label;
+        tmp.fontSize = 16;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = Color.white;
+        tmp.raycastTarget = false;
+
+        return btn;
+    }
+
+    private RectTransform CreateBlip(string name, Transform parent, Color color, bool circular)
+    {
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(parent);
+        RectTransform rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = new Vector2(6, 6);
+
+        var img = go.AddComponent<Image>();
+        img.color = color;
+        img.raycastTarget = false;
+
+        if (circular && minimapCircleSprite != null)
+        {
+            img.sprite = minimapCircleSprite;
+        }
+
+        return rt;
+    }
+
+    private void RefreshMinimapObjects()
+    {
+        if (minimapShowPlanets)
+        {
+            // IMPORTANT: Moon inherits Planet, so FindObjectsOfType<Planet>() would include moons.
+            Planet[] allPlanets = FindObjectsOfType<Planet>();
+            var list = new System.Collections.Generic.List<Planet>(allPlanets.Length);
+            for (int i = 0; i < allPlanets.Length; i++)
+            {
+                Planet p = allPlanets[i];
+                if (p == null) continue;
+                if (p is Moon) continue;
+                list.Add(p);
+            }
+            cachedPlanets = list.ToArray();
+        }
+        else
+        {
+            cachedPlanets = System.Array.Empty<Planet>();
+        }
+
+        cachedMoons = minimapShowMoons ? FindObjectsOfType<Moon>() : System.Array.Empty<Moon>();
+        cachedAsteroids = minimapShowAsteroids ? FindObjectsOfType<Asteroid>() : System.Array.Empty<Asteroid>();
+        cachedVehicles = minimapShowVehicles ? FindObjectsOfType<Vehicle>() : System.Array.Empty<Vehicle>();
+
+        EnsureBlipCount(planetBlips, cachedPlanets != null ? cachedPlanets.Length : 0, minimapArea, minimapPlanetColor, "Planet", circular: true);
+        EnsureBlipCount(moonBlips, cachedMoons != null ? cachedMoons.Length : 0, minimapArea, minimapMoonColor, "Moon", circular: true);
+        EnsureBlipCount(asteroidBlips, cachedAsteroids != null ? cachedAsteroids.Length : 0, minimapArea, minimapAsteroidColor, "Asteroid", circular: false);
+        EnsureBlipCount(vehicleBlips, cachedVehicles != null ? cachedVehicles.Length : 0, minimapArea, minimapVehicleColor, "Vehicle", circular: true);
+    }
+
+    private void EnsureBlipCount(System.Collections.Generic.List<RectTransform> list, int count, RectTransform parent, Color color, string prefix, bool circular)
+    {
+        if (parent == null) return;
+
+        while (list.Count > count)
+        {
+            if (list[list.Count - 1] != null) Destroy(list[list.Count - 1].gameObject);
+            list.RemoveAt(list.Count - 1);
+        }
+
+        while (list.Count < count)
+        {
+            list.Add(CreateBlip($"{prefix}Blip{list.Count}", parent, color, circular));
+        }
+    }
+
+    private void UpdateMinimapUI()
+    {
+        if (minimapPanel == null || minimapArea == null) return;
+
+        minimapPanel.SetActive(showMinimap);
+        if (!showMinimap) return;
+
+        if (Time.time >= nextMinimapRefreshTime)
+        {
+            nextMinimapRefreshTime = Time.time + Mathf.Max(0.1f, minimapRefreshInterval);
+            RefreshMinimapObjects();
+        }
+
+        Vector2 origin = minimapCenterMode == MinimapCenterMode.ControlledVehicle && lockedVehicle != null
+            ? (Vector2)lockedVehicle.transform.position
+            : (Vector2)transform.position;
+
+        Vector2 areaSize = minimapArea.rect.size;
+        Vector2 half = areaSize * 0.5f;
+
+        // Place blips (objects may be destroyed between refreshes, so skip nulls and hide unused blips)
+        int planetIndex = 0;
+        for (int i = 0; cachedPlanets != null && i < cachedPlanets.Length; i++)
+        {
+            Planet pObj = cachedPlanets[i];
+            if (pObj == null) continue;
+            if (planetIndex >= planetBlips.Count) break;
+
+            Vector2 p = (Vector2)pObj.transform.position;
+            Vector2 delta = (p - origin) / Mathf.Max(0.0001f, minimapUnitsPerPixel);
+
+            // Size: world radius -> minimap pixels
+            float worldRadius = Mathf.Max(0f, pObj.GetRadius());
+            float sizePx = (worldRadius * 2f / Mathf.Max(0.0001f, minimapUnitsPerPixel)) * Mathf.Max(0.01f, minimapPlanetSizeMultiplier);
+            sizePx = Mathf.Clamp(sizePx, minimapMinBlipSizePx, Mathf.Min(areaSize.x, areaSize.y));
+
+            RectTransform blip = planetBlips[planetIndex];
+            if (blip != null)
+            {
+                blip.gameObject.SetActive(true);
+                blip.sizeDelta = new Vector2(sizePx, sizePx);
+                blip.anchoredPosition = new Vector2(
+                    Mathf.Clamp(delta.x, -half.x, half.x),
+                    Mathf.Clamp(delta.y, -half.y, half.y)
+                );
+            }
+
+            planetIndex++;
+        }
+        for (int i = planetIndex; i < planetBlips.Count; i++)
+        {
+            if (planetBlips[i] != null) planetBlips[i].gameObject.SetActive(false);
+        }
+
+        int moonIndex = 0;
+        for (int i = 0; cachedMoons != null && i < cachedMoons.Length; i++)
+        {
+            Moon mObj = cachedMoons[i];
+            if (mObj == null) continue;
+            if (moonIndex >= moonBlips.Count) break;
+
+            Vector2 p = (Vector2)mObj.transform.position;
+            Vector2 delta = (p - origin) / Mathf.Max(0.0001f, minimapUnitsPerPixel);
+
+            float worldRadius = Mathf.Max(0f, mObj.GetRadius());
+            float sizePx = (worldRadius * 2f / Mathf.Max(0.0001f, minimapUnitsPerPixel)) * Mathf.Max(0.01f, minimapPlanetSizeMultiplier);
+            sizePx = Mathf.Clamp(sizePx, minimapMinBlipSizePx, Mathf.Min(areaSize.x, areaSize.y));
+
+            RectTransform blip = moonBlips[moonIndex];
+            if (blip != null)
+            {
+                blip.gameObject.SetActive(true);
+                blip.sizeDelta = new Vector2(sizePx, sizePx);
+                blip.anchoredPosition = new Vector2(
+                    Mathf.Clamp(delta.x, -half.x, half.x),
+                    Mathf.Clamp(delta.y, -half.y, half.y)
+                );
+            }
+
+            moonIndex++;
+        }
+        for (int i = moonIndex; i < moonBlips.Count; i++)
+        {
+            if (moonBlips[i] != null) moonBlips[i].gameObject.SetActive(false);
+        }
+
+        int asteroidIndex = 0;
+        for (int i = 0; cachedAsteroids != null && i < cachedAsteroids.Length; i++)
+        {
+            Asteroid aObj = cachedAsteroids[i];
+            if (aObj == null) continue;
+            if (asteroidIndex >= asteroidBlips.Count) break;
+
+            Vector2 p = (Vector2)aObj.transform.position;
+            Vector2 delta = (p - origin) / Mathf.Max(0.0001f, minimapUnitsPerPixel);
+
+            RectTransform blip = asteroidBlips[asteroidIndex];
+            if (blip != null)
+            {
+                blip.gameObject.SetActive(true);
+                float sizePx = Mathf.Max(minimapMinBlipSizePx, 3f);
+                blip.sizeDelta = new Vector2(sizePx, sizePx);
+                blip.anchoredPosition = new Vector2(
+                    Mathf.Clamp(delta.x, -half.x, half.x),
+                    Mathf.Clamp(delta.y, -half.y, half.y)
+                );
+            }
+
+            asteroidIndex++;
+        }
+        for (int i = asteroidIndex; i < asteroidBlips.Count; i++)
+        {
+            if (asteroidBlips[i] != null) asteroidBlips[i].gameObject.SetActive(false);
+        }
+
+        int vehicleIndex = 0;
+        for (int i = 0; cachedVehicles != null && i < cachedVehicles.Length; i++)
+        {
+            Vehicle vObj = cachedVehicles[i];
+            if (vObj == null) continue;
+            if (vehicleIndex >= vehicleBlips.Count) break;
+
+            Vector2 p = (Vector2)vObj.transform.position;
+            Vector2 delta = (p - origin) / Mathf.Max(0.0001f, minimapUnitsPerPixel);
+
+            float worldSize = GetVehicleWorldSize(vObj);
+            float sizePx = (worldSize / Mathf.Max(0.0001f, minimapUnitsPerPixel)) * Mathf.Max(0.01f, minimapVehicleSizeMultiplier);
+            sizePx = Mathf.Clamp(sizePx, minimapMinBlipSizePx, 30f);
+
+            RectTransform blip = vehicleBlips[vehicleIndex];
+            if (blip != null)
+            {
+                blip.gameObject.SetActive(true);
+                blip.sizeDelta = new Vector2(sizePx, sizePx);
+                blip.anchoredPosition = new Vector2(
+                    Mathf.Clamp(delta.x, -half.x, half.x),
+                    Mathf.Clamp(delta.y, -half.y, half.y)
+                );
+
+                // Controlled vehicle highlight
+                var img = blip.GetComponent<Image>();
+                if (img != null)
+                {
+                    img.color = vObj == Vehicle.ControlledVehicle ? minimapControlledVehicleColor : minimapVehicleColor;
+                }
+            }
+
+            vehicleIndex++;
+        }
+        for (int i = vehicleIndex; i < vehicleBlips.Count; i++)
+        {
+            if (vehicleBlips[i] != null) vehicleBlips[i].gameObject.SetActive(false);
+        }
+
+        // Camera view box
+        if (minimapCameraRect != null && cam != null)
+        {
+            Vector2 camPos = (Vector2)transform.position;
+            Vector2 camDelta = (camPos - origin) / Mathf.Max(0.0001f, minimapUnitsPerPixel);
+            minimapCameraRect.anchoredPosition = new Vector2(
+                Mathf.Clamp(camDelta.x, -half.x, half.x),
+                Mathf.Clamp(camDelta.y, -half.y, half.y)
+            );
+
+            float halfH = cam.orthographicSize;
+            float halfW = halfH * cam.aspect;
+            Vector2 viewSizeWorld = new Vector2(halfW * 2f, halfH * 2f);
+            Vector2 viewSizePx = viewSizeWorld / Mathf.Max(0.0001f, minimapUnitsPerPixel);
+            viewSizePx.x = Mathf.Clamp(viewSizePx.x, 6f, areaSize.x);
+            viewSizePx.y = Mathf.Clamp(viewSizePx.y, 6f, areaSize.y);
+            minimapCameraRect.sizeDelta = viewSizePx;
+        }
+    }
+
+    private float GetVehicleWorldSize(Vehicle vehicle)
+    {
+        if (vehicle == null) return 1f;
+        SpriteRenderer sr = vehicle.transform.Find("VehicleRenderer")?.GetComponent<SpriteRenderer>();
+        if (sr == null) sr = vehicle.GetComponentInChildren<SpriteRenderer>();
+        if (sr != null)
+        {
+            Vector3 size = sr.bounds.size;
+            return Mathf.Max(size.x, size.y);
+        }
+        return 1f;
+    }
+
     private void CreateUI()
     {
         // Create Canvas
@@ -925,5 +1376,6 @@ public class CameraController : MonoBehaviour
 
         EnsureVehicleControlsUI(canvasObj);
         EnsureForceDiagramUI(canvasObj);
+        EnsureMinimapUI(canvasObj);
     }
 }

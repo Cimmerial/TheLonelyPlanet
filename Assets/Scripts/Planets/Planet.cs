@@ -50,20 +50,22 @@ public class Planet : MonoBehaviour, IBigGravity
         GeneratePlanet();
     }
 
-    private void Update()
-    {
-        transform.Rotate(Vector3.forward, naturalRotationSpeed * Time.deltaTime);
-    }
 
     void OnEnable() => GravityManager.Register(this);
     void OnDisable() => GravityManager.Unregister(this);
 
-    private void FixedUpdate()
+    protected virtual void FixedUpdate()
     {
+        // Keep rotation on the Rigidbody2D (if present) so physics/collisions remain consistent.
         if (planetRB != null)
         {
             float nextRotation = planetRB.rotation + naturalRotationSpeed * Time.fixedDeltaTime;
             planetRB.MoveRotation(nextRotation);
+        }
+        else
+        {
+            // Fallback (should be rare): rotate transform directly.
+            transform.Rotate(Vector3.forward, naturalRotationSpeed * Time.fixedDeltaTime);
         }
     }
 

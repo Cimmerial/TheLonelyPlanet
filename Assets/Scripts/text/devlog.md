@@ -142,3 +142,5 @@
 ### THU 1.29.26
 - Add a button called 'reset to 0' where it takes the flier and stops it from moving (add as superclass method). (also gives time estimate on how long it will take and has countdown and progress bar). little ui that pops up top right when you zero it. (click 0 to do so). only works within space and sets vehicles velocity fo 0, but gravity is exempt if the stabilization is less than 1. Also dont literally get it to 0 as that would result in some unflattering jittering, just get it to be at still as possible within a reasonable margin. 
 - Dogwash, Blixm
+
+- Resources are color based? where we take a color and make it resource X, then hue/shade it to depict how pure or condensed this resource is. Lighter being better, so good asteroids sparkle. 

@@ -7,11 +7,29 @@ using UnityEngine;
 
 public class PlanetGenerator
 {
+    private static void DestroyChildIfExists(Planet planet, string childName)
+    {
+        if (planet == null) return;
+        Transform t = planet.transform.Find(childName);
+        if (t == null) return;
+        if (Application.isPlaying)
+        {
+            UnityEngine.Object.Destroy(t.gameObject);
+        }
+        else
+        {
+            UnityEngine.Object.DestroyImmediate(t.gameObject);
+        }
+    }
 
     public void GeneratePlanet(Planet planet)
     {
         float radius = planet.Radius;
         float atmosphereHeight = planet.AtmosphereHeight;
+
+        // For now, planets/moons are always perfect circles (both visuals and colliders).
+        // If/when we want irregular planets again, we can reintroduce ShapeVariation as an option.
+        float variation = 0f;
 
         int planetRes = Mathf.CeilToInt(radius * 2) + 4;
         int atmosphereRes = Mathf.CeilToInt((radius + atmosphereHeight) * 2) + 4;
@@ -20,7 +38,7 @@ public class PlanetGenerator
             planetRes,
             radius,
             Color.black,
-            planet.ShapeVariation,
+            variation,
             planet.NoiseScale,
             planet.RandomSeed,
             out int filledPixels
@@ -39,16 +57,21 @@ public class PlanetGenerator
 
         planet.SetPhysicsData(totalMass, surfaceGravity, maxInfluenceRadius);
 
-        // Atmosphere uses same shape variation but slightly expanded
+        // Atmosphere is also circular
         Texture2D atmosphereTex = GeneratePlanetTexture(
             atmosphereRes,
             radius + atmosphereHeight,
             new Color(0f, 0.0f, 0.0f, 0.1f),
-            planet.ShapeVariation * 0.5f, // Less variation on atmosphere
+            variation,
             planet.NoiseScale,
             planet.RandomSeed,
             out _
         );
+
+        // Remove any prior generated children (avoids duplicate colliders / incorrect apparent sizes)
+        DestroyChildIfExists(planet, "PlanetRenderer");
+        DestroyChildIfExists(planet, "AtmosphereRenderer");
+        DestroyChildIfExists(planet, "PlanetCollider");
 
         planet.PlanetSpriteRenderer = AddRendererChild(planet, "PlanetRenderer", 0);
         if (planet.AtmosphereHeight > 0) planet.AtmosphereSpriteRenderer = AddRendererChild(planet, "AtmosphereRenderer", -1);
@@ -57,17 +80,13 @@ public class PlanetGenerator
         Sprite atmosphereSprite = Sprite.Create(atmosphereTex, new Rect(0, 0, atmosphereRes, atmosphereRes), new Vector2(0.5f, 0.5f), Utility.GLOBAL_PPU);
 
         planet.PlanetSpriteRenderer.sprite = planetSprite;
-        planet.AtmosphereSpriteRenderer.sprite = atmosphereSprite;
+        if (planet.AtmosphereHeight > 0 && planet.AtmosphereSpriteRenderer != null)
+        {
+            planet.AtmosphereSpriteRenderer.sprite = atmosphereSprite;
+        }
 
-        // Use polygon collider if there's shape variation, otherwise use circle
-        if (planet.ShapeVariation > 0.01f)
-        {
-            planet.PlanetCollider = AddPolygonColliderChild(planet, "PlanetCollider", planetTex, planet.ColliderSimplification);
-        }
-        else
-        {
-            planet.PlanetCollider = AddCircleColliderChild(planet, "PlanetCollider", radius / Utility.GLOBAL_PPU);
-        }
+        // Always use a circle collider for planets/moons.
+        planet.PlanetCollider = AddCircleColliderChild(planet, "PlanetCollider", radius / Utility.GLOBAL_PPU);
     }
 
     public Texture2D GeneratePlanetTexture(
@@ -151,35 +170,61 @@ public class PlanetGenerator
     public SpriteRenderer AddRendererChild(Planet planet, string name, int sortingOrder)
     {
         GameObject planetRendererChild = new(name);
-        planetRendererChild.transform.SetParent(planet.gameObject.transform);
+        planetRendererChild.transform.SetParent(planet.gameObject.transform, worldPositionStays: false);
+        planetRendererChild.transform.localPosition = Vector3.zero;
+        planetRendererChild.transform.localRotation = Quaternion.identity;
+        planetRendererChild.transform.localScale = Vector3.one;
+
         SpriteRenderer planetSpriteRenderer = planetRendererChild.AddComponent<SpriteRenderer>();
         planetSpriteRenderer.sortingOrder = sortingOrder;
-        planetRendererChild.transform.position = planet.transform.position;
         return planetSpriteRenderer;
     }
 
     public Collider2D AddCircleColliderChild(Planet planet, string name, float radius)
     {
-        GameObject planetColliderChild = new(name);
-        planetColliderChild.transform.SetParent(planet.gameObject.transform);
-        CircleCollider2D planetCollider = planetColliderChild.AddComponent<CircleCollider2D>();
-        planetCollider.radius = radius - .005f; // Slightly smaller to avoid edge issues
-        planetCollider.sharedMaterial = Utility.GetFrictionMaterial(); // Add friction material
-        planetColliderChild.transform.position = planet.transform.position;
-
-        Rigidbody2D rb = planetColliderChild.AddComponent<Rigidbody2D>();
+        // Rigidbody2D must live on the planet root so moons (OrbitalRails) and planets behave consistently.
+        Rigidbody2D rb = planet.GetComponent<Rigidbody2D>();
+        if (rb == null)
+        {
+            rb = planet.gameObject.AddComponent<Rigidbody2D>();
+        }
         rb.bodyType = RigidbodyType2D.Kinematic;
         rb.useFullKinematicContacts = true; // Critical for friction!
         rb.mass = planet.GetMass();
+        rb.angularVelocity = 0f;
         planet.PlanetRB = rb;
+
+        GameObject planetColliderChild = new(name);
+        planetColliderChild.transform.SetParent(planet.gameObject.transform, worldPositionStays: false);
+        planetColliderChild.transform.localPosition = Vector3.zero;
+        planetColliderChild.transform.localRotation = Quaternion.identity;
+        planetColliderChild.transform.localScale = Vector3.one;
+
+        CircleCollider2D planetCollider = planetColliderChild.AddComponent<CircleCollider2D>();
+        planetCollider.radius = Mathf.Max(0.001f, radius - 0.005f); // Slightly smaller to avoid edge issues
+        planetCollider.sharedMaterial = Utility.GetFrictionMaterial();
         return planetCollider;
     }
 
     public Collider2D AddPolygonColliderChild(Planet planet, string name, Texture2D texture, int simplification)
     {
+        // NOTE: Kept for future use (irregular planets). Rigidbody2D is always on the root.
+        Rigidbody2D rb = planet.GetComponent<Rigidbody2D>();
+        if (rb == null)
+        {
+            rb = planet.gameObject.AddComponent<Rigidbody2D>();
+        }
+        rb.bodyType = RigidbodyType2D.Kinematic;
+        rb.useFullKinematicContacts = true;
+        rb.mass = planet.GetMass();
+        rb.angularVelocity = 0f;
+        planet.PlanetRB = rb;
+
         GameObject colliderChild = new(name);
-        colliderChild.transform.SetParent(planet.gameObject.transform);
-        colliderChild.transform.position = planet.transform.position;
+        colliderChild.transform.SetParent(planet.gameObject.transform, worldPositionStays: false);
+        colliderChild.transform.localPosition = Vector3.zero;
+        colliderChild.transform.localRotation = Quaternion.identity;
+        colliderChild.transform.localScale = Vector3.one;
 
         // Generate polygon collider from texture (already has friction material applied in Utility.GeneratePolygonCollider)
         PolygonCollider2D collider = Utility.GeneratePolygonCollider(
@@ -189,12 +234,6 @@ public class PlanetGenerator
             simplification,
             0.1f // Alpha threshold
         );
-
-        Rigidbody2D rb = colliderChild.AddComponent<Rigidbody2D>();
-        rb.bodyType = RigidbodyType2D.Kinematic;
-        rb.useFullKinematicContacts = true; // Critical for friction!
-        rb.mass = planet.GetMass();
-        planet.PlanetRB = rb;
 
         return collider;
     }

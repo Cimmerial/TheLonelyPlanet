@@ -85,14 +85,27 @@ public class Flier : Vehicle
     [SerializeField] private float spaceMaxSpeed = 0f;
 
     [Header("Space Turning (A/D)")]
-    [Tooltip("Torque applied (N·m) while holding A/D in Space mode.")]
+    [Tooltip("How fast the ship turns (degrees/sec) in Space mode.\nRotation is direct (no angular momentum).")]
+    [SerializeField] private float spaceTurnSpeedDegreesPerSecond = 180f;
+
+    [Tooltip("(Legacy) Kept for Reset-to-Zero capability checks; player turning no longer uses torque.")]
     [SerializeField] private float spaceTurnTorque = 150f;
 
+    [Tooltip("Max turn rate used by Reset-to-Zero rotation (degrees/sec).")]
     [SerializeField] private float spaceMaxAngularVelocity = 180f;
 
+    [Tooltip("If you press A and D close together, treat it as 'stop rotation' even if they aren't perfectly simultaneous.")]
+    [SerializeField] private float spaceTurnBrakeWindowSeconds = 0.12f;
+
+    private float lastTurnLeftDownTime = -999f;
+    private float lastTurnRightDownTime = -999f;
+
     [Header("Space Environment Scaling")]
-    [Tooltip("Multiplier applied to Space-mode thrusters/turning when NOT in atmosphere (true space).\nUse this to keep the same thruster values usable for takeoff/atmosphere while making space less twitchy.")]
-    [SerializeField] private float spaceControlScaleOutOfAtmosphere = 0.25f;
+    [Tooltip("Multiplier applied to Space-mode THRUST when NOT in atmosphere (true space).\nUse this to keep the same thruster values usable for takeoff/atmosphere while making space less twitchy.")]
+    [SerializeField] private float spaceThrustScaleOutOfAtmosphere = 0.25f;
+
+    [Tooltip("Multiplier applied to Space-mode TURNING when NOT in atmosphere.\nSet to 1 for literal degrees/sec behavior.")]
+    [SerializeField] private float spaceTurnScaleOutOfAtmosphere = 1f;
 
     [Header("Space Damping")]
     [Tooltip("Linear drag used when NOT in atmosphere. Set to 0 for no auto slow-down in vacuum.")]
@@ -148,6 +161,10 @@ public class Flier : Vehicle
         {
             toggleRequested = true;
         }
+
+        // Capture A/D presses so braking is easier (you don't have to hit them on the exact same frame).
+        if (Input.GetKeyDown(KeyCode.A)) lastTurnLeftDownTime = Time.time;
+        if (Input.GetKeyDown(KeyCode.D)) lastTurnRightDownTime = Time.time;
     }
 
     protected override void FixedUpdate()
@@ -225,6 +242,7 @@ public class Flier : Vehicle
     protected override void UpdateVehiclePhysics()
     {
         if (rb == null || atmosphericPhysics == null) return;
+        if (IsResettingToZero) return;
         if (!usePlayerInput) return;
         if (!IsPlayerControlled) return;
 
@@ -248,31 +266,45 @@ public class Flier : Vehicle
         Vector2 up = transform.up;
 
         // Make Space mode less twitchy in true space without forcing you to retune for atmosphere/takeoff.
-        float scale = atmosphericPhysics.IsInAtmosphere ? 1f : Mathf.Clamp01(spaceControlScaleOutOfAtmosphere);
+        float thrustScale = atmosphericPhysics.IsInAtmosphere ? 1f : Mathf.Clamp01(spaceThrustScaleOutOfAtmosphere);
+        float turnScale = atmosphericPhysics.IsInAtmosphere ? 1f : Mathf.Clamp(spaceTurnScaleOutOfAtmosphere, 0.01f, 10f);
 
         if (Input.GetKey(KeyCode.W) && spaceThrustUp > 0f)
         {
-            rb.AddForce(up * (spaceThrustUp * scale), ForceMode2D.Force);
+            rb.AddForce(up * (spaceThrustUp * thrustScale), ForceMode2D.Force);
         }
 
         if (Input.GetKey(KeyCode.S) && spaceThrustDown > 0f)
         {
-            rb.AddForce(-up * (spaceThrustDown * scale), ForceMode2D.Force);
+            rb.AddForce(-up * (spaceThrustDown * thrustScale), ForceMode2D.Force);
         }
 
-        // Turning only (Mode 1)
-        float turn = 0f;
-        if (Input.GetKey(KeyCode.A)) turn += 1f;
-        if (Input.GetKey(KeyCode.D)) turn -= 1f;
+        // Turning (Space): direct rotation (no angular momentum).
+        bool turnLeft = Input.GetKey(KeyCode.A);
+        bool turnRight = Input.GetKey(KeyCode.D);
 
-        if (Mathf.Abs(turn) > 0.01f && spaceTurnTorque > 0f)
+        bool brake = (turnLeft && turnRight)
+                     || (turnLeft && (Time.time - lastTurnRightDownTime) <= spaceTurnBrakeWindowSeconds)
+                     || (turnRight && (Time.time - lastTurnLeftDownTime) <= spaceTurnBrakeWindowSeconds);
+
+        if (brake)
         {
-            rb.AddTorque(turn * (spaceTurnTorque * scale), ForceMode2D.Force);
+            rb.angularVelocity = 0f;
         }
-
-        if (spaceMaxAngularVelocity > 0f)
+        else
         {
-            rb.angularVelocity = Mathf.Clamp(rb.angularVelocity, -spaceMaxAngularVelocity, spaceMaxAngularVelocity);
+            float turnInput = 0f;
+            if (turnLeft) turnInput += 1f;
+            if (turnRight) turnInput -= 1f;
+
+            if (Mathf.Abs(turnInput) > 0.01f && spaceTurnSpeedDegreesPerSecond > 0f)
+            {
+                float delta = turnInput * (spaceTurnSpeedDegreesPerSecond * turnScale) * Time.fixedDeltaTime;
+                rb.MoveRotation(rb.rotation + delta);
+            }
+
+            // Always kill angular momentum so rotation cannot "run away".
+            rb.angularVelocity = 0f;
         }
     }
 
@@ -372,6 +404,26 @@ public class Flier : Vehicle
             rb.drag = defaultLinearDrag;
             rb.angularDrag = defaultAngularDrag;
         }
+    }
+
+    protected override ResetToZeroCapabilities GetResetToZeroCapabilities()
+    {
+        // Use the same scaling as player controls so space isn't overly twitchy.
+        float thrustScale = atmosphericPhysics != null && !atmosphericPhysics.IsInAtmosphere
+            ? Mathf.Clamp01(spaceThrustScaleOutOfAtmosphere)
+            : 1f;
+
+        float turnScale = atmosphericPhysics != null && !atmosphericPhysics.IsInAtmosphere
+            ? Mathf.Clamp(spaceTurnScaleOutOfAtmosphere, 0.01f, 10f)
+            : 1f;
+
+        return new ResetToZeroCapabilities
+        {
+            forwardForce = Mathf.Max(0f, spaceThrustUp * thrustScale),
+            reverseForce = Mathf.Max(0f, spaceThrustDown * thrustScale),
+            turnTorque = Mathf.Max(0f, spaceTurnTorque * turnScale),
+            maxAngularVelocity = Mathf.Max(0f, spaceMaxAngularVelocity * turnScale),
+        };
     }
 
     private void ClampMotion()

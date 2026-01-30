@@ -86,14 +86,25 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     [SerializeField] private float hoverHeight = 0.0f;
 
     [Header("Reset To 0 (Space Only)")]
-    [SerializeField] private float resetLinearDamping = 8f;
-    [SerializeField] private float resetAngularDamping = 12f;
-    [SerializeField] private float resetRotationDamping = 10f;
+    [Tooltip("When resetting, we rotate toward the opposite of our current velocity (to brake), then rotate upright (world up).")]
     [SerializeField] private float resetTargetAngleDegrees = 0f;
-    [SerializeField] private float resetVelocityThreshold = 0.05f;
-    [SerializeField] private float resetAngularVelocityThreshold = 0.5f;
-    [SerializeField] private float resetAngleThreshold = 1f;
-    [SerializeField] private float resetMaxDurationSeconds = 6f;
+
+    [Tooltip("Velocity-control gain (1/s). Higher = more aggressive braking when aligned.")]
+    [SerializeField] private float resetLinearDamping = 3f;
+
+    [Tooltip("Rotation-control proportional gain (torque per degree). Higher = snappier rotation.")]
+    [SerializeField] private float resetRotationDamping = 8f;
+
+    [Tooltip("Rotation-control derivative gain (torque per deg/s). Higher = less overshoot.")]
+    [SerializeField] private float resetAngularDamping = 2f;
+
+    [Tooltip("Only apply thrust when within this many degrees of target direction.")]
+    [SerializeField] private float resetThrustAngleWindowDegrees = 15f;
+
+    [SerializeField] private float resetVelocityThreshold = 0.01f;
+    [SerializeField] private float resetAngularVelocityThreshold = 0.1f;
+    [SerializeField] private float resetAngleThreshold = 0.5f;
+    [SerializeField] private float resetMaxDurationSeconds = 20f;
 
     // IAtmosphericObject implementation
     public Vector2 GetRelativeVelocity() => atmosphericPhysics?.GetRelativeVelocity() ?? Vector2.zero;
@@ -162,10 +173,43 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         PlaceOnNearestPlanet();
     }
 
+    protected struct ResetToZeroCapabilities
+    {
+        public float forwardForce;
+        public float reverseForce;
+        public float turnTorque;
+        public float maxAngularVelocity;
+    }
+
+    protected virtual ResetToZeroCapabilities GetResetToZeroCapabilities()
+    {
+        return new ResetToZeroCapabilities
+        {
+            forwardForce = 0f,
+            reverseForce = 0f,
+            turnTorque = 0f,
+            maxAngularVelocity = 0f,
+        };
+    }
+
     public bool CanResetToZeroInSpace()
     {
         if (rb == null || atmosphericPhysics == null) return false;
         if (atmosphericPhysics.IsInAtmosphere) return false;
+
+        var caps = GetResetToZeroCapabilities();
+        if (caps.forwardForce <= 0f)
+        {
+            // This usually means the subclass hasn't provided space-thruster capabilities.
+            return false;
+        }
+
+        // Reset-to-zero rotates directly (no angular momentum), so maxAngularVelocity acts as our turn rate.
+        if (caps.maxAngularVelocity <= 0f)
+        {
+            return false;
+        }
+
         return true;
     }
 
@@ -186,75 +230,91 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     {
         IsResettingToZero = true;
         ResetToZeroElapsedSeconds = 0f;
+        ResetToZeroProgress01 = 0f;
+
+        var caps = GetResetToZeroCapabilities();
 
         float v0 = rb.velocity.magnitude;
-        float w0 = Mathf.Abs(rb.angularVelocity);
 
-        // Estimate time based on exponential decay (clamped).
-        float estV = resetLinearDamping > 0f && v0 > resetVelocityThreshold
-            ? Mathf.Log(Mathf.Max(1.0001f, v0 / resetVelocityThreshold)) / resetLinearDamping
-            : 0f;
-        float estW = resetAngularDamping > 0f && w0 > resetAngularVelocityThreshold
-            ? Mathf.Log(Mathf.Max(1.0001f, w0 / resetAngularVelocityThreshold)) / resetAngularDamping
-            : 0f;
+        // Estimate time using maximum available deceleration + some rotation overhead.
+        float maxDecel = caps.forwardForce > 0f ? (caps.forwardForce / Mathf.Max(0.0001f, rb.mass)) : 0f;
+        float estBrake = (maxDecel > 0f && v0 > resetVelocityThreshold) ? (v0 / maxDecel) : 0.5f;
+        ResetToZeroEstimatedSeconds = Mathf.Clamp(estBrake + 2f, 0.5f, resetMaxDurationSeconds);
 
-        ResetToZeroEstimatedSeconds = Mathf.Clamp(Mathf.Max(estV, estW, 0.5f), 0.5f, resetMaxDurationSeconds);
-
-        float dt;
         while (ResetToZeroElapsedSeconds < resetMaxDurationSeconds)
         {
-            dt = Time.fixedDeltaTime;
+            float dt = Time.fixedDeltaTime;
             ResetToZeroElapsedSeconds += dt;
-
-            // Dampen linear velocity
-            if (resetLinearDamping > 0f)
-            {
-                float t = 1f - Mathf.Exp(-resetLinearDamping * dt);
-                rb.velocity = Vector2.Lerp(rb.velocity, Vector2.zero, t);
-            }
-
-            // Dampen angular velocity
-            if (resetAngularDamping > 0f)
-            {
-                float t = 1f - Mathf.Exp(-resetAngularDamping * dt);
-                rb.angularVelocity = Mathf.Lerp(rb.angularVelocity, 0f, t);
-            }
-
-            // Rotate upright (world up) smoothly
-            if (resetRotationDamping > 0f)
-            {
-                float t = 1f - Mathf.Exp(-resetRotationDamping * dt);
-                float nextAngle = Mathf.LerpAngle(rb.rotation, resetTargetAngleDegrees, t);
-                rb.MoveRotation(nextAngle);
-            }
-
-            float vel = rb.velocity.magnitude;
-            float angVel = Mathf.Abs(rb.angularVelocity);
-            float angleErr = Mathf.Abs(Mathf.DeltaAngle(rb.rotation, resetTargetAngleDegrees));
-
-            // Progress heuristic: how far through the estimated decay window we are.
-            float denom = Mathf.Max(0.0001f, ResetToZeroEstimatedSeconds);
-            ResetToZeroProgress01 = Mathf.Clamp01(ResetToZeroElapsedSeconds / denom);
-
-            if (vel <= resetVelocityThreshold && angVel <= resetAngularVelocityThreshold && angleErr <= resetAngleThreshold)
-            {
-                // Snap once at the end (avoid forcing exact zeros every frame).
-                rb.velocity = Vector2.zero;
-                rb.angularVelocity = 0f;
-                rb.MoveRotation(resetTargetAngleDegrees);
-                break;
-            }
-
-            yield return new WaitForFixedUpdate();
 
             // If we entered atmosphere, abort.
             if (atmosphericPhysics != null && atmosphericPhysics.IsInAtmosphere)
             {
                 break;
             }
+
+            Vector2 v = rb.velocity;
+            float speed = v.magnitude;
+
+            // HARD stop rotation: we rotate directly (no angular momentum).
+            rb.angularVelocity = 0f;
+
+            // Phase 1: if moving, rotate to face opposite velocity (so forward thrust brakes).
+            // Phase 2: once nearly stopped, rotate upright.
+            Vector2 brakeDir = speed > resetVelocityThreshold * 2f ? (-v.normalized) : Vector2.up;
+            float desiredAngle = Mathf.Atan2(brakeDir.y, brakeDir.x) * Mathf.Rad2Deg - 90f;
+
+            float angleError = Mathf.DeltaAngle(rb.rotation, desiredAngle);
+
+            // Turn at a max rate (deg/sec). This cannot overshoot.
+            float maxTurnStep = Mathf.Max(0f, caps.maxAngularVelocity) * dt;
+            float nextAngle = Mathf.MoveTowardsAngle(rb.rotation, desiredAngle, maxTurnStep);
+            rb.MoveRotation(nextAngle);
+            rb.angularVelocity = 0f;
+
+            // Braking thrust: scale force so we approach 0 smoothly instead of overshooting.
+            // Only thrust when we're at least somewhat aligned.
+            if (speed > resetVelocityThreshold)
+            {
+                float alignment = Vector2.Dot((Vector2)transform.up, brakeDir); // 1 when perfectly aligned
+
+                if (alignment > 0.1f && Mathf.Abs(angleError) <= resetThrustAngleWindowDegrees)
+                {
+                    float mass = Mathf.Max(0.0001f, rb.mass);
+                    float maxForce = Mathf.Max(0f, caps.forwardForce);
+
+                    // Target deceleration magnitude (m/s^2)
+                    float desiredDecel = speed * Mathf.Max(0.1f, resetLinearDamping);
+
+                    // If we're not perfectly aligned, increase force so the component along brakeDir matches desiredDecel.
+                    float requiredAccelAlongUp = desiredDecel / Mathf.Max(0.1f, alignment);
+                    float requiredForce = requiredAccelAlongUp * mass;
+
+                    float force = Mathf.Clamp(requiredForce, 0f, maxForce);
+                    rb.AddForce((Vector2)transform.up * force, ForceMode2D.Force);
+                }
+            }
+
+            // Progress heuristic
+            float denom = Mathf.Max(0.0001f, ResetToZeroEstimatedSeconds);
+            ResetToZeroProgress01 = Mathf.Clamp01(ResetToZeroElapsedSeconds / denom);
+
+            // Done criteria relative to upright.
+            float uprightErr = Mathf.Abs(Mathf.DeltaAngle(rb.rotation, resetTargetAngleDegrees));
+            float angVelAbs = Mathf.Abs(rb.angularVelocity);
+
+            if (speed <= resetVelocityThreshold && angVelAbs <= resetAngularVelocityThreshold && uprightErr <= resetAngleThreshold)
+            {
+                // Snap once.
+                rb.velocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+                rb.rotation = resetTargetAngleDegrees;
+                ResetToZeroProgress01 = 1f;
+                break;
+            }
+
+            yield return new WaitForFixedUpdate();
         }
 
-        ResetToZeroProgress01 = 1f;
         IsResettingToZero = false;
     }
 
