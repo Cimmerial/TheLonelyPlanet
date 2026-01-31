@@ -69,6 +69,9 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     [SerializeField] protected Rigidbody2D rb;
     [SerializeField] protected AtmosphericPhysics atmosphericPhysics;
 
+    [Header("Cargo")]
+    [SerializeField] protected Cargo cargo;
+
     [Header("Component Management")]
     [SerializeField] protected Transform componentsParent;
     [SerializeField] protected List<Transform> primarySlots = new List<Transform>();
@@ -107,6 +110,7 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
     public bool IsInAtmosphere() => atmosphericPhysics?.IsInAtmosphere ?? false;
 
     public VehicleCameraSettings CameraSettings => cameraSettings;
+    public Cargo Cargo => cargo;
 
     // Reset-to-zero state for UI
     public bool IsResettingToZero { get; private set; }
@@ -133,6 +137,12 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         if (!string.IsNullOrEmpty(spriteName))
         {
             LoadAndSetupVehicle();
+        }
+
+        // Default cargo if not assigned in inspector.
+        if (cargo == null)
+        {
+            cargo = new Cargo(new System.Collections.Generic.List<ResourceEnum>(), resourceCapacity: 500, weightCapacity: 99999f, name: "Main Cargo");
         }
 
         // Setup existing components

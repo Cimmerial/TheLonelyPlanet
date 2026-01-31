@@ -1,0 +1,679 @@
+Refined Plan: Asteroid Generation, Resources, Mining, and Fracturing (v1 “pixel-truth” design)
+
+This document defines a restart-friendly, coherent design for:
+•  Procedural asteroid generation
+•  A resource system where each asteroid pixel == 1 resource unit
+•  A mining loop where mining removes pixels, yields resources probabilistically, and can fracture asteroids
+•  A fracturing system that remains stable, performant, and deterministic
+•  Resource “quality classes” driven by pixel brightness / quality scalar
+
+This is written as a design spec, not tied to the current code state, so you can revert cleanly and re-implement in stages.
+
+
+
+0) Goals & non-goals
+
+Goals
+1) Pixel truth: Each solid asteroid pixel represents exactly one resource unit.
+2) Deterministic: Given an asteroid seed + same profile preset, the resource distribution is reproducible.
+3) Mining is intuitive: Drill removes material at the contact point. If you mine a chunk away, it’s gone.
+4) Performance: Avoid heavy per-tick collider regeneration and avoid costly CPU per-pixel rendering at runtime.
+5) Extensible: Resources can evolve (new resource types, new quality tiers, different distributions) without rewriting core loops.
+6) Tunable: You can create Scriptable presets for resource makeup and quality distributions.
+
+Non-goals (for early versions)
+•  Perfectly physically accurate stress simulation.
+•  Continuous real-time polygon collider regeneration every tick.
+•  Complex vein shaders, bloom, or post-processing.
+•  Full-blown inventory/production chain (we just need mining → storage path).
+
+
+
+1) Data Model
+
+1.1 Resource definition (authoring)
+Resource is a ScriptableObject: name, color, weight, etc.  
+Weight is constant across quality classes (per your requirement).
+
+Key fields (suggested):
+•  string displayName
+•  Color baseColor (used for UI, tint, minimap, debug overlays)
+•  float weightPerUnit (same across quality)
+•  Optional: rarity / UI icon / tech flags (not used by mining logic directly)
+
+> Important: Resource ScriptableObjects define type only. Quality is per-pixel.
+
+1.2 Resource quality / classes
+Quality is a per-pixel scalar quality01 in [0..1], but with your display constraint:
+•  Floor displayed quality at 0.1 (so it never looks fully black)
+
+Resource classes
+You want 5 classes initially:
+•  raw, rough, rare, refined, pure  
+…but names/count should be flexible.
+
+So: author a ScriptableObject ResourceQualityConfig:
+•  List<QualityTier> where each tier has:
+◦  string id (stable key, e.g. RAW)
+◦  string displayName (e.g. “Raw”)
+◦  float min01
+◦  float max01
+
+Example default:
+•  [0.0–0.2] raw
+•  [0.2–0.4] rough (or rare depending on naming)
+•  [0.4–0.6] rare
+•  [0.6–0.8] refined
+•  [0.8–1.0] pure
+
+(Your earlier text had “0.2–0.4 is rare” but also mentioned “rough”; this config resolves that cleanly.)
+
+Rules
+•  All tiers have the same weight (weight is per unit, independent of tier).
+•  Tier impacts are gameplay/market/UI decisions later.
+
+
+
+2) Asteroid Resource Representation (“Resource Map”)
+
+2.1 Core representation: pixel map
+Each asteroid has a generated texture rockTex (RGBA) that defines shape:
+•  alpha > threshold = solid pixel
+•  This is already how your asteroid textures work.
+
+We add a parallel resource payload representation. There are two good options:
+
+Option A (recommended): CPU-side arrays + optional texture for debug
+Maintain:
+•  byte[] resourceTypeIdPerPixel (size = w*h)
+•  byte[] quality01PerPixel (0–255, size = w*h)
+•  BitArray or alpha check for “solid vs empty” can be derived from rockTex.a
+
+This is the authoritative truth used by mining and fracturing.
+
+Optional: build a debug texture from these arrays for editor visualization (not required at runtime).
+
+Option B: encode into a second texture
+Maintain a second texture resourceTex where:
+•  R channel encodes resource id (0–255)
+•  G channel encodes quality (0–255)
+•  A channel encodes solid (or rely on rock alpha)
+
+This can simplify GPU visualization, but you do not want shaders right now; so Option A is better initially.
+
+
+
+3) Asteroid Generation Pipeline
+
+3.1 Inputs
+•  seed
+•  geometry parameters (size, noise, etc.)
+•  AsteroidResourceProfilePreset (ScriptableObject)
+•  ResourceQualityConfig (ScriptableObject)
+
+3.2 Output
+•  rockTex (visual sprite texture)
+•  filledPixelIndices (or count)
+•  resourceTypeIdPerPixel[]
+•  quality01PerPixel[]
+
+3.3 AsteroidResourceProfilePreset (the “composition” authoring)
+This preset is the main authoring tool.
+
+It should specify:
+Composition (resource fractions)
+A list of entries:
+•  Resource resource
+•  float fraction01 (share of all solid pixels; should be normalized)
+•  Optional future: “vein-ness” / clustering param
+
+Important: because BLACKSTONE is the base rock and mineable too, BLACKSTONE can be included in the fractions OR implicitly fills remainder.
+
+Quality distribution per resource
+Replace “concentration slider” with a curve:
+•  AnimationCurve qualityDistributionCurve per resource OR a shared default curve with per-resource overrides.
+
+How it works:
+•  Sample u ~ Uniform(0..1)
+•  Map to quality01 = curve(u)
+•  Clamp to [0.1, 1.0] for display floor (or store true quality but display floor at render/UI time)
+
+Default curve: “right-skewed” (lots of low quality, fewer high quality).
+This can be achieved by a curve like:
+•  y = x^k with k > 1
+or an AnimationCurve that approximates it.
+
+Determinism rule
+All sampling must use a deterministic RNG seeded by:
+•  asteroidSeed
+•  and stable offsets (resource index, pixel index, etc.)
+
+3.4 Assigning resources to pixels
+Given a filled pixel list:
+1) Shuffle filled pixel indices deterministically using seed.
+2) Allocate counts per resource:
+•  count_i = round(fraction_i * filledCount)
+•  Fix rounding drift by distributing remainder or forcing last resource to fill remaining.
+3) For each pixel assigned resource type:
+•  assign resourceTypeIdPerPixel[p]
+•  assign quality01PerPixel[p] using that resource’s quality curve
+
+This is fast enough at generation time (not during chunk load, not during mining tick).
+
+
+
+4) Mining System (Strategy 1)
+
+You chose Strategy 1:
+•  Mining removes pixels
+•  Collider updates are throttled, not per tick
+•  Mining yield is probabilistic per pixel removed
+
+4.1 Digger stats
+Recommended digger parameters:
+•  tickIntervalSeconds (time per tick)
+•  pixelsPerTick (how many solid pixels removed per tick)
+•  brushRadiusWorld (world space radius of mining brush)
+•  yieldChance (0..1) chance that a removed pixel yields resource into cargo
+•  drillVolatility (renamed from digForce): adds extra damage / instability per tick (optional)
+•  Optional later: targetHardness, heat, etc.
+
+Interpretations
+•  Removing pixels is “material excavation” (always happens when you mine actual solid).
+•  Yield chance is “how much gets captured vs lost as dust”.
+•  Volatility is “how much you destabilize the body beyond just removing material”.
+
+4.2 Mining tick algorithm
+Each tick for each digger contact:
+1) Determine contact point in asteroid local space.
+2) Convert to pixel coords.
+3) Collect candidate solid pixels within brush radius.
+4) Choose up to pixelsPerTick pixels (deterministically or pseudo-randomly).
+5) For each chosen pixel:
+•  Remove it (mark solid → empty; alpha to 0 in rockTex or separate mask)
+•  With probability yieldChance, add (resourceType, quality) to results list
+•  Apply destabilization: lower asteroid break threshold based on pixel removed (see below)
+
+6) Update visuals:
+•  For no shaders: you can update rockTex alpha and Apply() periodically
+7) Update collider throttled:
+•  If removedPixelsSinceRebuild > threshold OR timeSinceRebuild > threshold:
+     rebuild polygon collider from updated texture
+
+4.3 Prevent “mining air”
+Mining must only remove pixels that are currently solid.  
+If no solid pixels in radius → nothing happens.
+
+So even if collider is stale, mining logic remains correct.
+
+4.4 Collider throttling policy
+We need to avoid heavy runtime collider generation while also avoiding long-lived “ghost collision” areas.
+
+Recommended policy:
+•  Rebuild collider when either:
+◦  pixelsRemovedSinceRebuild >= 75 (tune)
+◦  OR timeSinceRebuild >= 0.75s (tune)
+◦  OR “surface breach” detected (if you implement “hole reaches outer boundary”, rebuild immediately)
+
+This keeps physics “mostly” aligned without constant spikes.
+
+
+
+5) Structural Damage & Fracturing
+
+5.1 Destabilization-from-mining (fracture without volatility)
+You want asteroids to fracture even if drill volatility is 0, because removing pixels is structural.
+
+Model:
+•  Initial break threshold is computed as today (mass * toughness).
+•  Define breakThresholdPerPixel = initialBreakThreshold / initialSolidPixelCount
+•  Each removed pixel reduces break threshold:
+◦  breakThreshold -= breakThresholdPerPixel
+
+This guarantees that removing enough of the asteroid will eventually drop breakThreshold to a point where it fractures (or reaches zero / empties).
+
+5.2 Drill volatility (optional extra damage)
+Volatility is the “unsafe” part:
+•  Each tick (or each removed pixel) can add extra accumulated damage:
+◦  accumulatedDamage += drillVolatility per tick
+◦  or += drillVolatility * pixelsRemovedThisTick
+
+Interpretation:
+•  High volatility fractures asteroids sooner, which you don’t want because fracture yields nothing (in your current direction).
+
+So players optimize for:
+•  low volatility
+•  high pixelsPerTick and high yieldChance
+…but those can be balanced by tool design.
+
+5.3 Fracture yields
+You stated: fracturing yields nothing; resources come from mining ticks.
+
+That implies:
+•  Fracture is primarily a “failure mode / hazard” or “mechanical consequence”, not a reward event.
+•  Collision fracture becomes a way to “waste” ore (destroy without collecting).
+
+This is coherent with yieldChance being the only way to capture resources.
+
+5.4 What does fracture do physically?
+When fracture triggers:
+•  Use your existing Voronoi fragmentation to create fragment textures/colliders
+•  The fragment textures must inherit the removed pixels (holes) already applied
+•  Ideally: resource maps should split too (not required immediately if you only mine pre-fracture and fracture yields nothing; but for consistency, you should propagate remaining pixels)
+
+If you want to keep it simpler initially:
+•  When fracture happens, just destroy asteroid and spawn fragments visually/physically (resources not spawned).
+•  Later: propagate resource maps to fragments so you can keep mining fragments.
+
+
+
+6) Resource Storage & Return Types
+
+6.1 What mining returns
+Mining returns a list of “units”. Each unit is a pixel:
+•  resource type
+•  quality01 (or tier id derived from quality config)
+
+So define a struct/class:
+•  MinedResourceUnit { ResourceEnum type; byte qualityByte; }
+or in C#:
+•  public struct MinedResourceUnit { public ResourceEnum type; public float quality01; }
+
+Then:
+•  BrokenResourceData should evolve from List<ResourceEnum> to List<MinedResourceUnit>.
+
+This is a key part of the restart plan: the current BrokenResourceData is too small for quality.
+
+6.2 Cargo system
+Cargo should store resource units (including quality), not just enums.
+But if you want a v0 compromise:
+•  store only enum for now
+•  track quality later
+
+Given your new direction, better to encode quality now.
+
+
+
+7) Visuals (minimal, no shaders)
+
+You do not want custom shaders right now, but you still need to debug and read resources.
+
+Minimal visualization plan:
+1) Asteroid base texture already exists.
+2) When generating the asteroid, tint pixels by resource color and apply brightness based on quality.
+•  This is done once at generation time (acceptable).
+3) When mining removes pixels, you only need to clear alpha of those pixels, and occasionally Apply().
+
+This is CPU texture editing, but constrained:
+•  Generation: one-time full texture write
+•  Mining: small brush updates per tick (only a handful of pixels), then Apply() maybe throttled (every N removed pixels)
+
+This should perform far better than extra shaders/material churn if your bottleneck was material/shader overhead or GPU.
+
+
+
+8) Determinism rules (important)
+To prevent “random drift”:
+•  All pixel assignments and quality assignments use deterministic RNG seeded by:
+◦  asteroidSeed
+◦  stable offsets: resource index, pixel index, etc.
+
+Example:
+•  resource assignment: shuffle filled indices using seed
+•  quality assignment: rng = new Random(seed ^ pixelIndex ^ resourceId * 1315423911) etc.
+
+This ensures the same asteroid regen produces the same map.
+
+
+
+9) Editor tooling (for iteration)
+You want fast iteration without pollution.
+
+9.1 AsteroidGenerationTest rig
+•  A root GameObject with AsteroidGenerationTest
+•  Child objects each have Asteroid
+•  Press “Generate All” to regen them in place
+•  On entering Play Mode, auto-delete these test asteroids
+
+9.2 Profile preset editor UI
+You already wanted:
+•  fraction editor with color-coded bar
+•  easier normalization
+
+Extend that concept to:
+•  quality curve per resource entry
+•  preview histogram later (not required now)
+
+
+
+10) Phase breakdown for re-implementation (recommended)
+
+Phase 1: Generation + deterministic resource map (no mining yet)
+•  Implement profile preset: fractions + per-resource quality curve
+•  Generate asteroid texture and paint pixels with resource colors * quality brightness
+•  Store CPU arrays (resource id + quality)
+•  Add test rig to generate multiple child asteroids reliably
+
+Success criteria:
+•  You can regen asteroids repeatedly and get stable results.
+•  Resources are “baked” into the asteroid texture.
+•  No shaders.
+
+Phase 2: Mining removes pixels + yields resources
+•  Digger sends mining tick data (pixelsPerTick, brush radius, yieldChance)
+•  Asteroid removes solid pixels and clears alpha
+•  Returned resources go into cargo
+•  No fracture yet, or fracture just destroys without yields
+
+Success criteria:
+•  Mining visibly carves asteroid
+•  YieldChance works (removed pixels sometimes don’t yield)
+•  No “mining air” (mining checks solid pixels)
+
+Phase 3: Destabilization + throttled collider rebuild
+•  breakThreshold-per-pixel reduction
+•  drillVolatility adds extra accumulated damage
+•  fracture triggers and spawns fragments
+•  collider rebuild throttled during mining
+•  optional: when fracture happens, propagate remaining maps to fragments (later)
+
+Success criteria:
+•  Asteroids fracture naturally after enough mining even with volatility=0
+•  Collider stays reasonably in sync (not perfect every tick, but not awful)
+
+
+
+11) Open design questions (to decide before coding)
+
+1) Does mining remove pixels even when yieldChance fails?
+•  You said yes: “chance you get it when removed” → removal happens regardless.
+
+2) Does collision damage remove pixels?
+•  Likely no. Collision applies force and fractures but doesn’t carve clean holes.
+
+3) Can you mine fragments?
+•  Recommended yes eventually, but can be staged.
+
+4) How to treat BLACKSTONE
+•  It is both base visual and a resource. So it must exist in the resource map and be mineable like others.
+•  Other resources are not “overlays”; they are alternative pixels in the same solid body.
+
+
+
+12) Summary of the final conceptual model
+
+•  The asteroid is literally a 2D grid of resource pixels.
+•  Each pixel has:
+◦  resource type
+◦  quality scalar (brightness)
+•  Mining removes pixels around the drill contact point.
+•  Each removed pixel:
+◦  always disappears
+◦  yields loot with probability yieldChance
+◦  reduces structural stability (lowers break threshold per pixel removed)
+•  Drill volatility is extra “unsafe damage”, encouraging low volatility for maximum yield.
+•  Collider rebuild is throttled to avoid lag.
+•  Fracture is a physical event, not a reward event (no fracture yield).
+
+
+
+If you want, I can rewrite this into a “checklist-style implementation spec” with exact class/struct names and suggested files—but the above is the stable conceptual plan to guide the restart.
+~/Downloads/Non-icloud Repos/LonelyPlanet
+ok create a timeline of how to slowly implement this, as to not do it all at once, i want to implement parts of it then test as we go and verify.
+Implementation timeline (incremental, test-first)
+
+This is a staged rollout where each stage ends in a verifiable checkpoint. The goal is to keep the game playable and debugging simple at all times.
+
+
+
+Stage 0 — Baseline + harness (½ session)
+Goal: You can repeatedly create/regenerate asteroids in-editor without entering Play Mode, and nothing pollutes runtime.
+
+Implement
+•  AsteroidGenerationTest rig (root object + child asteroids + “Generate All” button).
+•  Ensure Edit Mode generation never creates containers like ASTEROIDS.
+•  Add “destroy generated test asteroids on entering Play Mode”.
+
+Verify
+•  You can click Generate 10 times in a row; no duplicates, no hierarchy shuffling.
+•  Enter Play Mode → test asteroids disappear.
+•  No shader work, no mining changes.
+
+
+
+Stage 1 — Resource data + quality tiers config (½–1 session)
+Goal: Resources and quality tiers exist as data, even if not used yet.
+
+Implement
+•  Resource ScriptableObject (type data only).
+•  ResourceEnum (or move to GUID-based lookup later, but keep it simple now).
+•  ResourceQualityConfig ScriptableObject:
+◦  list of tiers (raw/rough/rare/refined/pure) with [min,max].
+◦  supports rename/reorder without code changes.
+•  MinedResourceUnit struct:
+◦  ResourceEnum type
+◦  byte qualityByte (0–255) OR float quality01.
+•  Update/extend BrokenResourceData to carry List<MinedResourceUnit> (or introduce a parallel class if you want to avoid breaking existing callers yet).
+
+Verify
+•  You can create/edit resources and quality config assets in the editor.
+•  A debug utility can classify a quality01 into a tier correctly.
+
+
+
+Stage 2 — Profile preset authoring (fractions + per-resource quality curves) (1 session)
+Goal: You can author “what this asteroid is made of” in a reusable preset.
+
+Implement
+•  AsteroidResourceProfilePreset ScriptableObject:
+◦  list of entries { resourceType, fraction01, AnimationCurve qualityCurve }
+◦  deterministic seed offset.
+•  Editor UI:
+◦  color-coded fraction bar
+◦  Normalize + Even Split + Add/Remove entry
+◦  per-entry curve field
+•  Validation helpers:
+◦  normalize fractions on save or via button
+◦  warn if sum is 0 or >1 (but don’t hard fail)
+
+Verify
+•  You can make a preset like:
+◦  70% Blackstone, 25% Graystone, 5% Arcium
+•  You can visually confirm fractions normalize.
+
+
+
+Stage 3 — Deterministic “resource map arrays” generation (no mining yet) (1–2 sessions)
+Goal: Every asteroid gets a deterministic per-pixel resource type + quality map.
+
+Implement
+On asteroid generation:
+•  Generate rockTex as before (alpha defines solid).
+•  Build a list of filledPixelIndices.
+•  Create arrays:
+◦  resourceTypeIdPerPixel[width*height]
+◦  qualityBytePerPixel[width*height]
+•  Deterministically assign:
+◦  shuffle filled pixels by seed
+◦  allocate counts per resource by fraction
+◦  assign quality via curve: quality = clamp(curve(u), 0.1..1.0)
+•  Store these arrays on the asteroid runtime component.
+
+Verify
+•  Generate the same asteroid twice (same seed + same preset) → arrays match.
+•  Log counts per resource type and confirm they’re close to requested fractions.
+•  No gameplay changes yet.
+
+
+
+Stage 4 — Bake visuals into the texture (still no mining) (½–1 session)
+Goal: Resources are visible without shaders.
+
+Implement
+•  During generation only (not per tick):
+◦  For each filled pixel:
+▪  base color = resource color
+▪  brightness = quality01 (floor at 0.1)
+▪  write final pixel color into rockTex
+•  Keep alpha as the “solid mask”.
+
+Verify
+•  Different resources appear as different colors.
+•  Quality changes appear as lightness/darkness within the same resource color.
+•  Performance remains fine because this is one-time per asteroid generation.
+
+
+
+Stage 5 — Mining tick removes pixels + returns resource units (no fracture yet) (1–2 sessions)
+Goal: You can mine and get items; the asteroid visibly loses pixels.
+
+Implement
+•  Digger tick sends:
+◦  contact point
+◦  pixelsPerTick
+◦  brushRadiusWorld
+◦  yieldChance
+•  Asteroid mining algorithm:
+◦  find solid pixels in brush radius
+◦  remove up to pixelsPerTick pixels (set alpha 0 + mark as empty)
+◦  for each removed pixel:
+▪  with probability yieldChance, emit MinedResourceUnit(type, quality)
+•  Push into cargo/inventory (even if it’s a debug list for now).
+
+Important: Do not rebuild collider yet. Just validate the mining loop.
+
+Verify
+•  You can mine and see holes carved.
+•  Items are returned with plausible type distribution.
+•  yieldChance works (some removed pixels don’t yield).
+•  No crashes, and you cannot “mine air” (if no solid pixels, nothing returns).
+
+
+
+Stage 6 — Throttled texture apply + throttled collider rebuild (Strategy 1) (1–2 sessions)
+Goal: Physics approximately matches the carved shape without big lag spikes.
+
+Implement
+•  Throttle texture.Apply():
+◦  apply after N removed pixels or every T seconds
+•  Throttle collider rebuild:
+◦  rebuild after N removed pixels AND at least T seconds since last rebuild
+•  Add debug counters on asteroid:
+◦  removedSinceApply, removedSinceColliderRebuild, lastRebuildTime
+
+Verify
+•  Mining doesn’t hitch constantly.
+•  Collider updates eventually match holes well enough (no huge “ghost rock” for long).
+•  Stress test: mine continuously for 30–60 seconds without major frame drops.
+
+
+
+Stage 7 — Destabilization + fracture trigger (fracture yields nothing) (1 session)
+Goal: Mining alone can fracture an asteroid even if “volatility” is 0.
+
+Implement
+•  Compute breakThresholdPerPixel = initialBreakThreshold / initialSolidPixels.
+•  Each removed pixel reduces break threshold (or reduces “remaining structural integrity”).
+•  Add optional “drillVolatility” that adds extra stress per tick.
+•  When threshold reached:
+◦  fracture asteroid into fragments using existing fragmentation pipeline
+◦  no resource payout on fracture (per your current rule)
+
+Verify
+•  Set drillVolatility=0, mine enough → asteroid fractures eventually.
+•  Set drillVolatility high → fractures earlier.
+•  No extra resources appear on fracture.
+
+
+
+Stage 8 — Fragments inherit remaining pixel maps (optional but recommended) (1–2 sessions)
+Goal: You can keep mining fragments consistently (pixel truth persists).
+
+Implement
+•  When fragmenting, split:
+◦  resourceTypeIdPerPixel
+◦  qualityBytePerPixel
+◦  and rock alpha
+  to each fragment texture/arrays.
+•  Ensure removed pixels stay removed.
+
+Verify
+•  Mine parent asteroid partially → fracture → mine fragments and get remaining resource types/qualities.
+•  No “resource duplication” (units conserved).
+
+
+
+Stage 9 — Polish + balancing passes (ongoing)
+Goal: Make it feel good and tunable.
+
+Add
+•  Better pixel selection inside brush (randomized order so it doesn’t carve in a weird scanline).
+•  Better contact point (actual drill tip, not collider bounds center).
+•  Tune thresholds for apply/rebuild.
+•  Add debug overlays and profiler hooks.
+
+
+
+Suggested “stop points” (when to pause and playtest)
+If you want maximum safety, pause after:
+•  Stage 0
+•  Stage 3
+•  Stage 5
+•  Stage 6
+•  Stage 7
+
+Those are the biggest behavior shifts.
+
+WHERE WE ARE NOW:
+
+Multiple issues — let me address them all:
+
+1) "Pixels only removed from edges"
+Right now we mine any solid pixel in the brush radius. The plan doc doesn't mandate "edges only" — but if you want it, we need to add a "surface detection" check (pixel has at least one transparent neighbor). That's doable but adds cost. Do you want edges-only enforcement?
+
+2) Cargo not filling up
+Looking at your log: captured=5 but cargo isn't growing. The issue is likely:
+•  parentVehicle is null on the Digger, OR
+•  Cargo is null on the Vehicle, OR  
+•  the Cargo constructor failed
+
+I initialized cargo in Vehicle.Awake(), but if your vehicle already existed in the scene before this code, the cargo field is still null and won't auto-populate until you create a new vehicle or manually assign it.
+
+Quick fix: On your vehicle in the inspector, under Cargo, click the lock icon or manually assign a new Cargo (or just delete the vehicle and recreate it so Awake() runs fresh).
+
+3) Destabilization not implemented yet
+No — we haven't hooked pixel removal into accumulatedForce or breakThreshold reduction yet. That's Phase 7 (originally Stage 7 in your timeline). Right now mining just removes pixels without affecting break threshold.
+
+4) Should we reduce threshold or add to accumulated force?
+Your current system:
+•  accumulatedForce accumulates damage from collisions
+•  fractures when accumulatedForce >= breakThreshold
+
+Two options for mining-driven fracture:
+
+Option A: reduce threshold per pixel removed
+csharp
+Pro: mining always eventually fractures at 100% removal
+Con: weird if you remove 50% then hit it; it fractures easier than expected
+
+Option B: add to accumulated force per pixel removed
+csharp
+Pro: unified damage model (mining damage + collision damage)
+Con: name is less intuitive
+
+I'd vote Option B (add to accumulatedForce) because it unifies the model and the threshold logic already exists.
+
+
+
+Quick actions now
+1) Check your vehicle's Cargo field in the inspector (it might be null on existing vehicles).
+2) Tell me:
+•  Do you want edges-only mining?
+•  Option A or B for destabilization?
+3) Once cargo works I can add Phase 7 destabilization right away.
+
+yeah edges only that way when we add the collider regeneration it actually will matter.
+
+2: B
+
+and yes cargo does load in but resources one doesnt fill up, just the resource units.

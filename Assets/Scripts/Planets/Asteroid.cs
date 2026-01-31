@@ -24,11 +24,19 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
     [SerializeField] private ResourceQualityConfig qualityConfig;
     [SerializeField] private bool logResourceCountsOnGenerate = false;
 
+    [Header("Asteroid Mining (Phase 5)")]
+    [SerializeField] private int applyAfterRemovedPixels = 25;
+    [SerializeField] private float applyAfterSeconds = 0.25f;
+
     [NonSerialized] private byte[] resourceTypeIdPerPixel;
     [NonSerialized] private byte[] qualityBytePerPixel;
     [NonSerialized] private int resourceMapWidth;
     [NonSerialized] private int resourceMapHeight;
     [NonSerialized] private int solidPixelCount;
+
+    [NonSerialized] private int miningTickCounter;
+    [NonSerialized] private int removedSinceLastApply;
+    [NonSerialized] private float lastApplyTime;
 
     [Header("Asteroid Components")]
     [SerializeField] private SpriteRenderer asteroidSpriteRenderer;
@@ -168,6 +176,11 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
         this.resourceMapHeight = height;
         this.solidPixelCount = solidPixelCount;
 
+        // Reset mining state when regen happens.
+        miningTickCounter = 0;
+        removedSinceLastApply = 0;
+        lastApplyTime = Time.realtimeSinceStartup;
+
         if (logResourceCountsOnGenerate)
         {
             var counts = GetResourceCounts();
@@ -175,6 +188,267 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
             {
                 Debug.Log($"[{gameObject.name}] ResourceMap: {kvp.Key}={kvp.Value}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Removes pixels around a world-space point and returns mined units (probabilistic yield).
+    /// This is the Phase 5 mining path (no fracture/collider rebuild here).
+    /// </summary>
+    public List<MinedResourceUnit> MineAtWorldPoint(
+        Vector2 worldPoint,
+        float brushRadiusWorld,
+        int pixelsPerTick,
+        float yieldChance01,
+        out int pixelsRemoved
+    )
+    {
+        pixelsRemoved = 0;
+        List<MinedResourceUnit> mined = new();
+
+        if (asteroidTexture == null) return mined;
+        if (resourceTypeIdPerPixel == null || qualityBytePerPixel == null) return mined;
+
+        int w = asteroidTexture.width;
+        int h = asteroidTexture.height;
+
+        // World -> local.
+        Vector2 localPoint = transform.InverseTransformPoint(worldPoint);
+
+        // Convert brush radius into local units (handles scaling).
+        float localRadius = transform.InverseTransformVector(new Vector3(brushRadiusWorld, 0f, 0f)).magnitude;
+
+        float ppu = Utility.GLOBAL_PPU;
+        int cx = Mathf.RoundToInt(localPoint.x * ppu + w / 2f);
+        int cy = Mathf.RoundToInt(localPoint.y * ppu + h / 2f);
+        int rPix = Mathf.CeilToInt(localRadius * ppu);
+
+        if (rPix <= 0 || pixelsPerTick <= 0) return mined;
+
+        int xMin = Mathf.Clamp(cx - rPix, 0, w - 1);
+        int xMax = Mathf.Clamp(cx + rPix, 0, w - 1);
+        int yMin = Mathf.Clamp(cy - rPix, 0, h - 1);
+        int yMax = Mathf.Clamp(cy + rPix, 0, h - 1);
+
+        int r2 = rPix * rPix;
+
+        Color32[] pixels = asteroidTexture.GetPixels32();
+        List<int> candidates = new();
+
+        for (int y = yMin; y <= yMax; y++)
+        {
+            int dy = y - cy;
+            int dy2 = dy * dy;
+            for (int x = xMin; x <= xMax; x++)
+            {
+                int dx = x - cx;
+                if (dx * dx + dy2 > r2) continue;
+
+                int idx = y * w + x;
+                if (idx < 0 || idx >= pixels.Length) continue;
+
+                // Solid pixel check is alpha-based.
+                if (pixels[idx].a == 0) continue;
+
+                // Cardinal edge-only check: pixel must have air on top/bottom/left/right.
+                if (!IsCardinalEdgePixel(pixels, x, y, w, h)) continue;
+
+                candidates.Add(idx);
+            }
+        }
+
+        if (candidates.Count == 0) return mined;
+
+        // Deterministic selection order per mining tick.
+        int tick = miningTickCounter++;
+        int selectSeed = HashSeed(randomSeed, tick, candidates.Count);
+        ShuffleInPlace(candidates, new System.Random(selectSeed));
+
+        float yieldChance = Mathf.Clamp01(yieldChance01);
+
+        int toRemove = Mathf.Min(pixelsPerTick, candidates.Count);
+        for (int i = 0; i < toRemove; i++)
+        {
+            int idx = candidates[i];
+
+            // Read mined unit data before clearing.
+            ResourceEnum type = (ResourceEnum)resourceTypeIdPerPixel[idx];
+            byte q = qualityBytePerPixel[idx];
+
+            // Deterministic yield check per pixel.
+            int yieldSeed = HashSeed(randomSeed, tick, idx);
+            System.Random yieldRng = new System.Random(yieldSeed);
+            if (yieldRng.NextDouble() < yieldChance)
+            {
+                mined.Add(new MinedResourceUnit(type, q));
+            }
+
+            // Remove pixel: clear alpha. (Keep RGB as-is; alpha mask is what matters.)
+            Color32 p = pixels[idx];
+            p.a = 0;
+            pixels[idx] = p;
+
+            pixelsRemoved++;
+        }
+
+        removedSinceLastApply += pixelsRemoved;
+
+        // Phase 7: Mining destabilization (Option B - add to accumulatedForce).
+        // Each pixel removed contributes damage toward fracture threshold.
+        // Formula: each pixel = (breakThreshold / solidPixelCount) × 3
+        if (pixelsRemoved > 0 && solidPixelCount > 0)
+        {
+            float damagePerPixel = (breakThreshold / solidPixelCount) * 3f;
+            float miningDamage = pixelsRemoved * damagePerPixel;
+            accumulatedForce += miningDamage;
+
+            // Update name to reflect accumulated damage.
+            string prefix = isFragment ? "FRAG" : "AST";
+            gameObject.name = $"{prefix} - {accumulatedForce:F0}/{breakThreshold:F0}";
+
+            Debug.Log($"[{gameObject.name}] Mining removed {pixelsRemoved} pixels, added {miningDamage:F1}N damage ({damagePerPixel:F2}N/pixel). Accumulated: {accumulatedForce:F0}/{breakThreshold:F0}N");
+
+            // Check if mining pushed us over the fracture threshold.
+            if (accumulatedForce >= breakThreshold)
+            {
+                Debug.Log($"[{gameObject.name}] Mining caused fracture!");
+                float excessForce = accumulatedForce - breakThreshold;
+                Fragment(excessForce, new DealForceData
+                {
+                    forceAmount = miningDamage,
+                    forceDirection = Vector2.zero, // No directional force from mining.
+                    forceReturnEfficiencyPercentage = 0f,
+                });
+                return mined; // Asteroid is destroyed, exit early.
+            }
+        }
+
+        // Remove orphaned pixels (pixels with no solid cardinal neighbors).
+        RemoveOrphanedPixels(pixels, w, h);
+
+        float now = Time.realtimeSinceStartup;
+        bool shouldApply = removedSinceLastApply >= Mathf.Max(1, applyAfterRemovedPixels) || (now - lastApplyTime) >= applyAfterSeconds;
+
+        if (shouldApply)
+        {
+            asteroidTexture.SetPixels32(pixels);
+            asteroidTexture.Apply();
+            removedSinceLastApply = 0;
+            lastApplyTime = now;
+
+            // Optional: re-bake newly exposed pixels (not needed since we preserve RGB).
+            // If you later implement mask-only texture changes, you can rebake here.
+        }
+        else
+        {
+            // We still need to store modifications for later Apply().
+            asteroidTexture.SetPixels32(pixels);
+        }
+
+        return mined;
+    }
+
+    /// <summary>
+    /// Check if a pixel is on a cardinal edge (has air on top/bottom/left/right).
+    /// </summary>
+    private static bool IsCardinalEdgePixel(Color32[] pixels, int x, int y, int w, int h)
+    {
+        // Check only 4-connected (cardinal) neighbors: up, down, left, right.
+        int[] dx = { 0, 0, -1, 1 };
+        int[] dy = { -1, 1, 0, 0 };
+
+        for (int i = 0; i < 4; i++)
+        {
+            int nx = x + dx[i];
+            int ny = y + dy[i];
+
+            // Out of bounds counts as transparent (air).
+            if (nx < 0 || nx >= w || ny < 0 || ny >= h) return true;
+
+            int nIdx = ny * w + nx;
+            if (nIdx < 0 || nIdx >= pixels.Length) return true;
+
+            // Transparent neighbor found (air).
+            if (pixels[nIdx].a == 0) return true;
+        }
+
+        return false; // No cardinal air neighbors = interior pixel.
+    }
+
+    /// <summary>
+    /// Remove orphaned pixels (pixels with no solid cardinal neighbors).
+    /// </summary>
+    private static void RemoveOrphanedPixels(Color32[] pixels, int w, int h)
+    {
+        // Find all orphaned pixels first (don't modify while iterating).
+        List<int> orphans = new();
+
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int idx = y * w + x;
+                if (pixels[idx].a == 0) continue; // Already transparent.
+
+                // Check if this pixel has ANY solid cardinal neighbor.
+                bool hasSolidNeighbor = false;
+                int[] dx = { 0, 0, -1, 1 };
+                int[] dy = { -1, 1, 0, 0 };
+
+                for (int i = 0; i < 4; i++)
+                {
+                    int nx = x + dx[i];
+                    int ny = y + dy[i];
+
+                    if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+
+                    int nIdx = ny * w + nx;
+                    if (nIdx < 0 || nIdx >= pixels.Length) continue;
+
+                    if (pixels[nIdx].a > 0) // Solid neighbor found.
+                    {
+                        hasSolidNeighbor = true;
+                        break;
+                    }
+                }
+
+                if (!hasSolidNeighbor)
+                {
+                    orphans.Add(idx);
+                }
+            }
+        }
+
+        // Remove orphaned pixels.
+        foreach (int idx in orphans)
+        {
+            Color32 p = pixels[idx];
+            p.a = 0;
+            pixels[idx] = p;
+        }
+    }
+
+    private static void ShuffleInPlace(List<int> list, System.Random rng)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+    }
+
+    private static int HashSeed(int a, int b, int c)
+    {
+        unchecked
+        {
+            int h = 17;
+            h = h * 31 + a;
+            h = h * 31 + b;
+            h = h * 31 + c;
+            h ^= (h << 13);
+            h ^= (h >> 17);
+            h ^= (h << 5);
+            return h;
         }
     }
 

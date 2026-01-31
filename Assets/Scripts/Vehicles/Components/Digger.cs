@@ -5,10 +5,17 @@ using System.Collections.Generic;
 [RequireComponent(typeof(Collider2D))]
 public class Digger : VComponent
 {
-    [Header("Digger Settings")]
+    [Header("Digger Settings (Legacy Force Damage)")]
     [SerializeField] private float digEfficiency = 0.4f;
     [SerializeField] private float digTime = 0.5f;
     [SerializeField] private float digForce = 10f;
+
+    [Header("Digger Settings (Pixel Mining - Phase 5)")]
+    [SerializeField] private bool usePixelMining = true;
+    [SerializeField] private int pixelsPerTick = 8;
+    [SerializeField] private float brushRadiusWorld = 0.25f;
+    [Range(0f, 1f)]
+    [SerializeField] private float yieldChance = 0.75f;
     
     [SerializeField] private Collider2D diggingCollider;
     [SerializeField] private LayerMask diggableLayers;
@@ -118,17 +125,45 @@ public class Digger : VComponent
 
             if (breakable != null)
             {
-                BrokenResourceData brokenData = breakable.TakeForceDamage(new DealForceData
+                Asteroid asteroid = col.GetComponentInParent<Asteroid>();
+                if (usePixelMining && asteroid != null)
                 {
-                    forceAmount = digForce,
-                    forceDirection = Vector2.zero,
-                    forceReturnEfficiencyPercentage = digEfficiency,
-                });
+                    Vector2 probe = diggingCollider.bounds.center;
+                    Vector2 contactPoint = col.ClosestPoint(probe);
 
-                // TODO: Collect broken resources
-                if (brokenData != null && brokenData.brokenResources != null)
+                    int removed;
+                    List<MinedResourceUnit> mined = asteroid.MineAtWorldPoint(
+                        contactPoint,
+                        brushRadiusWorld,
+                        pixelsPerTick,
+                        yieldChance,
+                        out removed
+                    );
+
+                    if (removed > 0)
+                    {
+                        Debug.Log($"[{componentName}] Pixel-mined: removed={removed}, captured={mined.Count}");
+                    }
+
+                    if (mined.Count > 0)
+                    {
+                        parentVehicle?.Cargo?.AddResourceUnits(mined);
+                    }
+                }
+                else
                 {
-                    Debug.Log($"[{componentName}] Collected {brokenData.brokenResources.Count} resources");
+                    BrokenResourceData brokenData = breakable.TakeForceDamage(new DealForceData
+                    {
+                        forceAmount = digForce,
+                        forceDirection = Vector2.zero,
+                        forceReturnEfficiencyPercentage = digEfficiency,
+                    });
+
+                    // TODO: Collect broken resources
+                    if (brokenData != null && brokenData.brokenResources != null)
+                    {
+                        Debug.Log($"[{componentName}] Collected {brokenData.brokenResources.Count} resources");
+                    }
                 }
             }
         }

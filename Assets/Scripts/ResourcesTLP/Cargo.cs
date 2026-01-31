@@ -5,25 +5,64 @@ using System.Collections.Generic;
 public class Cargo
 {
     public string name;
+
+    // Legacy storage (type only)
     public List<ResourceEnum> resources;
+
+    // v1 storage (type + quality)
+    public List<MinedResourceUnit> resourceUnits;
+
     public int resourceCapacity;
     public float weightCapacity;
 
     public Cargo(List<ResourceEnum> resources, int resourceCapacity, float weightCapacity, string name = "")
     {
-        this.resources = resources;
+        this.resources = resources ?? new List<ResourceEnum>();
         this.resourceCapacity = resourceCapacity;
         this.weightCapacity = weightCapacity;
         this.name = name;
+
+        // Initialize v1 list even if unused.
+        this.resourceUnits = new List<MinedResourceUnit>();
     }
 
     public void AddResource(List<ResourceEnum> resources)
     {
+        if (this.resources == null) this.resources = new List<ResourceEnum>();
+
         foreach (ResourceEnum resourceEnum in resources)
         {
             Resource resource = ResourceUtilities.GetResource(resourceEnum);
-            if (CargoVolume() < resourceCapacity && CargoWeight() + resource.weightPerUnit <= weightCapacity) this.resources.Add(resourceEnum);
-            else break;
+            if (resource == null) continue;
+
+            if (CargoVolume() < resourceCapacity && CargoWeight() + resource.weightPerUnit <= weightCapacity)
+            {
+                this.resources.Add(resourceEnum);
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    public void AddResourceUnits(List<MinedResourceUnit> units)
+    {
+        if (resourceUnits == null) resourceUnits = new List<MinedResourceUnit>();
+
+        foreach (MinedResourceUnit unit in units)
+        {
+            Resource resource = ResourceUtilities.GetResource(unit.type);
+            if (resource == null) continue;
+
+            if (CargoVolume() < resourceCapacity && CargoWeight() + resource.weightPerUnit <= weightCapacity)
+            {
+                resourceUnits.Add(unit);
+            }
+            else
+            {
+                break;
+            }
         }
     }
 
@@ -82,15 +121,39 @@ public class Cargo
     public float CargoWeight()
     {
         float totalWeight = 0f;
-        foreach (var resource in resources)
+
+        if (resources != null)
         {
-            totalWeight += ResourceUtilities.GetResource(resource).weightPerUnit;
+            foreach (var resource in resources)
+            {
+                Resource res = ResourceUtilities.GetResource(resource);
+                if (res == null) continue;
+                totalWeight += res.weightPerUnit;
+            }
         }
+
+        if (resourceUnits != null)
+        {
+            foreach (var unit in resourceUnits)
+            {
+                Resource res = ResourceUtilities.GetResource(unit.type);
+                if (res == null) continue;
+                totalWeight += res.weightPerUnit;
+            }
+        }
+
         return totalWeight;
     }
     public float CargoWeightPercentage() => CargoWeight() / weightCapacity;
 
-    public int CargoVolume() => resources.Count;
-    public float CargoVolumePercentage() => (float)resources.Count / resourceCapacity;
+    public int CargoVolume()
+    {
+        int count = 0;
+        if (resources != null) count += resources.Count;
+        if (resourceUnits != null) count += resourceUnits.Count;
+        return count;
+    }
+
+    public float CargoVolumePercentage() => (float)CargoVolume() / resourceCapacity;
 
 }
