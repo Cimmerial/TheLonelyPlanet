@@ -434,4 +434,12 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
     public float ToughnessMultiplier => toughnessMultiplier;
     public float BreakThreshold => breakThreshold;
     public float AccumulatedForce => accumulatedForce;
+
+    /// <summary>
+    /// Editor/debug helper. Rerolls this asteroid's generation seed.
+    /// </summary>
+    public void RandomizeSeed()
+    {
+        randomSeed = UnityEngine.Random.Range(1, 100000);
+    }
 }

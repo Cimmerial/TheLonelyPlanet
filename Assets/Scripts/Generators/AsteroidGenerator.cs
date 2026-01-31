@@ -1,84 +1,119 @@
 // Assets/Scripts/Generators/AsteroidGenerator.cs
-using System;
 using UnityEngine;
 
 public class AsteroidGenerator
 {
-    public void GenerateAsteroid(Asteroid asteroid)
-{
-    // Parent to "ASTEROIDS" container
-    GameObject container = GameObject.Find("ASTEROIDS");
-    if (container == null) container = new GameObject("ASTEROIDS");
-    asteroid.transform.SetParent(container.transform);
+    /// <summary>
+    /// Generates/refreshes an asteroid's texture, renderer, collider, and physics data.
+    /// </summary>
+    /// <param name="asteroid">Target asteroid component.</param>
+    /// <param name="parentOverride">If non-null, the asteroid will be re-parented here (world position preserved).</param>
+    /// <param name="ensureAsteroidsContainer">If true and parentOverride is null, parent under an "ASTEROIDS" container (creating it if missing).</param>
+    public void GenerateAsteroid(
+        Asteroid asteroid,
+        Transform parentOverride = null,
+        bool ensureAsteroidsContainer = true
+    )
+    {
+        if (asteroid == null) return;
 
-    Vector2 dimensions = asteroid.MaxDimensions;
+        // Clean up prior generated children so regen doesn't duplicate objects.
+        DestroyChildIfExists(asteroid.transform, "AsteroidRenderer");
+        DestroyChildIfExists(asteroid.transform, "AsteroidCollider");
+        asteroid.AsteroidSpriteRenderer = null;
+        asteroid.AsteroidCollider = null;
 
-    float maxDimension = Mathf.Max(dimensions.x, dimensions.y);
-    int resolution = Mathf.CeilToInt(maxDimension * 2) + 4;
+        // Parenting policy
+        if (parentOverride != null)
+        {
+            asteroid.transform.SetParent(parentOverride, worldPositionStays: true);
+        }
+        else if (ensureAsteroidsContainer)
+        {
+            GameObject container = GameObject.Find("ASTEROIDS");
+            if (container == null) container = new GameObject("ASTEROIDS");
+            asteroid.transform.SetParent(container.transform, worldPositionStays: true);
+        }
 
-    Vector2 radii = new Vector2(dimensions.x, dimensions.y);
+        Vector2 dimensions = asteroid.MaxDimensions;
+        float maxDimension = Mathf.Max(dimensions.x, dimensions.y);
+        int resolution = Mathf.CeilToInt(maxDimension * 2) + 4;
 
-    Texture2D asteroidTex = GenerateAsteroidTexture(
-        resolution,
-        radii,
-        asteroid.ShapeVariation,
-        asteroid.NoiseScale,
-        asteroid.RandomSeed,
-        asteroid.AsteroidColor,
-        out int filledPixels
-    );
+        Texture2D asteroidTex = GenerateAsteroidTexture(
+            resolution,
+            new Vector2(dimensions.x, dimensions.y),
+            asteroid.ShapeVariation,
+            asteroid.NoiseScale,
+            asteroid.RandomSeed,
+            asteroid.AsteroidColor,
+            out int filledPixels
+        );
 
-    asteroid.AsteroidTexture = asteroidTex;
+        asteroid.AsteroidTexture = asteroidTex;
 
-    float totalMass = filledPixels * asteroid.MassPerPixel;
-    asteroid.SetPhysicsData(totalMass);
-    asteroid.gameObject.name = $"AST - {asteroid.AccumulatedForce:F0}/{asteroid.BreakThreshold:F0}";
+        float totalMass = filledPixels * asteroid.MassPerPixel;
+        asteroid.SetPhysicsData(totalMass);
+        asteroid.gameObject.name = $"AST - {asteroid.AccumulatedForce:F0}/{asteroid.BreakThreshold:F0}";
 
-    asteroid.AsteroidSpriteRenderer = AddRendererChild(asteroid, "AsteroidRenderer", 0);
+        asteroid.AsteroidSpriteRenderer = AddRendererChild(asteroid, "AsteroidRenderer", 0);
 
-    Sprite asteroidSprite = Sprite.Create(
-        asteroidTex,
-        new Rect(0, 0, resolution, resolution),
-        new Vector2(0.5f, 0.5f),
-        Utility.GLOBAL_PPU
-    );
+        Sprite asteroidSprite = Sprite.Create(
+            asteroidTex,
+            new Rect(0, 0, resolution, resolution),
+            new Vector2(0.5f, 0.5f),
+            Utility.GLOBAL_PPU
+        );
+        asteroid.AsteroidSpriteRenderer.sprite = asteroidSprite;
 
-    asteroid.AsteroidSpriteRenderer.sprite = asteroidSprite;
+        asteroid.AsteroidCollider = AddPolygonColliderChild(
+            asteroid,
+            "AsteroidCollider",
+            asteroidTex,
+            asteroid.ColliderSimplification
+        );
 
-    asteroid.AsteroidCollider = AddPolygonColliderChild(
-        asteroid,
-        "AsteroidCollider",
-        asteroidTex,
-        asteroid.ColliderSimplification
-    );
+        // Rigidbody should not duplicate on regen.
+        Rigidbody2D rb = asteroid.GetComponent<Rigidbody2D>();
+        if (rb == null) rb = asteroid.gameObject.AddComponent<Rigidbody2D>();
+        rb.gravityScale = 0f;
+        rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        rb.mass = totalMass;
 
-    // ADD RIGIDBODY TO PARENT
-    Rigidbody2D rb = asteroid.gameObject.AddComponent<Rigidbody2D>();
-    rb.gravityScale = 0f;
-    rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
-    rb.mass = totalMass;
-    
-    asteroid.SetMass(totalMass);
-}
+        asteroid.SetMass(totalMass);
+    }
 
-public Collider2D AddPolygonColliderChild(Asteroid asteroid, string name, Texture2D texture, int simplification)
-{
-    GameObject colliderChild = new(name);
-    colliderChild.transform.SetParent(asteroid.gameObject.transform);
-    colliderChild.transform.localPosition = Vector3.zero;
+    private static void DestroyChildIfExists(Transform parent, string childName)
+    {
+        Transform child = parent.Find(childName);
+        if (child == null) return;
 
-    PolygonCollider2D collider = Utility.GeneratePolygonCollider(
-        colliderChild,
-        texture,
-        Utility.GLOBAL_PPU,
-        simplification,
-        0.1f,
-        Utility.ColliderGenMode.Legacy
-    );
+        if (Application.isPlaying)
+        {
+            Object.Destroy(child.gameObject);
+        }
+        else
+        {
+            Object.DestroyImmediate(child.gameObject);
+        }
+    }
 
-    // NO RIGIDBODY HERE ANYMORE
-    return collider;
-}
+    public Collider2D AddPolygonColliderChild(Asteroid asteroid, string name, Texture2D texture, int simplification)
+    {
+        GameObject colliderChild = new(name);
+        colliderChild.transform.SetParent(asteroid.gameObject.transform);
+        colliderChild.transform.localPosition = Vector3.zero;
+
+        PolygonCollider2D collider = Utility.GeneratePolygonCollider(
+            colliderChild,
+            texture,
+            Utility.GLOBAL_PPU,
+            simplification,
+            0.1f,
+            Utility.ColliderGenMode.Legacy
+        );
+
+        return collider;
+    }
 
     public Texture2D GenerateAsteroidTexture(
         int resolution,
@@ -99,8 +134,8 @@ public Collider2D AddPolygonColliderChild(Asteroid asteroid, string name, Textur
         filledPixels = 0;
         float center = resolution / 2f;
 
-        UnityEngine.Random.InitState(seed);
-        float noiseOffset = UnityEngine.Random.Range(0f, 1000f);
+        Random.InitState(seed);
+        float noiseOffset = Random.Range(0f, 1000f);
 
         for (int y = 0; y < resolution; y++)
         {
@@ -121,7 +156,7 @@ public Collider2D AddPolygonColliderChild(Asteroid asteroid, string name, Textur
                 float adjustedRadiusY = radii.y * radiusMultiplier;
 
                 float normalizedDist = (dx * dx) / (adjustedRadiusX * adjustedRadiusX) +
-                                      (dy * dy) / (adjustedRadiusY * adjustedRadiusY);
+                                       (dy * dy) / (adjustedRadiusY * adjustedRadiusY);
 
                 if (normalizedDist <= 1f)
                 {
@@ -158,5 +193,4 @@ public Collider2D AddPolygonColliderChild(Asteroid asteroid, string name, Textur
 
         return spriteRenderer;
     }
-
 }
