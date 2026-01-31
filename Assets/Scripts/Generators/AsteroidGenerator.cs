@@ -51,6 +51,25 @@ public class AsteroidGenerator
 
         asteroid.AsteroidTexture = asteroidTex;
 
+        // Phase 3: build deterministic per-pixel resource + quality arrays (authoritative truth for later mining/fracture).
+        AsteroidResourceMapGenerator.Generate(
+            asteroidTex,
+            asteroid.ResourceProfilePreset,
+            asteroid.RandomSeed,
+            out byte[] resourceTypeIdPerPixel,
+            out byte[] qualityBytePerPixel,
+            out int solidPixelCount
+        );
+        asteroid.SetResourceMap(resourceTypeIdPerPixel, qualityBytePerPixel, asteroidTex.width, asteroidTex.height, solidPixelCount);
+
+        // Phase 4: bake visuals (no shaders) so resource colors show up immediately.
+        AsteroidResourceVisualBaker.BakeIntoTexture(
+            asteroidTex,
+            resourceTypeIdPerPixel,
+            qualityBytePerPixel,
+            displayedQualityFloor01: 0.1f
+        );
+
         float totalMass = filledPixels * asteroid.MassPerPixel;
         asteroid.SetPhysicsData(totalMass);
         asteroid.gameObject.name = $"AST - {asteroid.AccumulatedForce:F0}/{asteroid.BreakThreshold:F0}";

@@ -19,6 +19,17 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
     [SerializeField] private Dictionary<float, ResourceEnum> asteroidComposition = new();
     [SerializeField] private int asteroidResourceCount = 0;
 
+    [Header("Asteroid Resources (Phase 3)")]
+    [SerializeField] private AsteroidResourceProfilePreset resourceProfilePreset;
+    [SerializeField] private ResourceQualityConfig qualityConfig;
+    [SerializeField] private bool logResourceCountsOnGenerate = false;
+
+    [NonSerialized] private byte[] resourceTypeIdPerPixel;
+    [NonSerialized] private byte[] qualityBytePerPixel;
+    [NonSerialized] private int resourceMapWidth;
+    [NonSerialized] private int resourceMapHeight;
+    [NonSerialized] private int solidPixelCount;
+
     [Header("Asteroid Components")]
     [SerializeField] private SpriteRenderer asteroidSpriteRenderer;
     [SerializeField] private Collider2D asteroidCollider;
@@ -147,6 +158,44 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
     {
         AsteroidGenerator generator = new();
         generator.GenerateAsteroid(this);
+    }
+
+    public void SetResourceMap(byte[] resourceTypeIdPerPixel, byte[] qualityBytePerPixel, int width, int height, int solidPixelCount)
+    {
+        this.resourceTypeIdPerPixel = resourceTypeIdPerPixel;
+        this.qualityBytePerPixel = qualityBytePerPixel;
+        this.resourceMapWidth = width;
+        this.resourceMapHeight = height;
+        this.solidPixelCount = solidPixelCount;
+
+        if (logResourceCountsOnGenerate)
+        {
+            var counts = GetResourceCounts();
+            foreach (var kvp in counts)
+            {
+                Debug.Log($"[{gameObject.name}] ResourceMap: {kvp.Key}={kvp.Value}");
+            }
+        }
+    }
+
+    public Dictionary<ResourceEnum, int> GetResourceCounts()
+    {
+        Dictionary<ResourceEnum, int> counts = new();
+        if (resourceTypeIdPerPixel == null || asteroidTexture == null) return counts;
+
+        Color32[] pixels = asteroidTexture.GetPixels32();
+        int n = Mathf.Min(pixels.Length, resourceTypeIdPerPixel.Length);
+
+        for (int i = 0; i < n; i++)
+        {
+            if (pixels[i].a == 0) continue;
+
+            ResourceEnum type = (ResourceEnum)resourceTypeIdPerPixel[i];
+            if (!counts.TryGetValue(type, out int c)) c = 0;
+            counts[type] = c + 1;
+        }
+
+        return counts;
     }
 
     void SetupOrbit(Transform target)
@@ -423,6 +472,15 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
         get { return asteroidSpriteRenderer; }
         set { asteroidSpriteRenderer = value; }
     }
+
+    public AsteroidResourceProfilePreset ResourceProfilePreset => resourceProfilePreset;
+    public ResourceQualityConfig QualityConfig => qualityConfig;
+
+    public byte[] ResourceTypeIdPerPixel => resourceTypeIdPerPixel;
+    public byte[] QualityBytePerPixel => qualityBytePerPixel;
+    public int ResourceMapWidth => resourceMapWidth;
+    public int ResourceMapHeight => resourceMapHeight;
+    public int SolidPixelCount => solidPixelCount;
 
     public Texture2D AsteroidTexture
     {

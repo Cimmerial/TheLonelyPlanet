@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 19854491d6ef8433ba2797a5946554b0, type: 3}
+  m_Name: RESOURCE_QUALITY_CONFIG
+  m_EditorClassIdentifier: 
+  tiers:
+  - id: RAW
+    displayName: Raw
+    min01: 0
+    max01: 0.2
+  - id: ROUGH
+    displayName: Rough
+    min01: 0.2
+    max01: 0.4
+  - id: RARE
+    displayName: Rare
+    min01: 0.4
+    max01: 0.6
+  - id: REFINED
+    displayName: Refined
+    min01: 0.6
+    max01: 0.8
+  - id: PURE
+    displayName: Pure
+    min01: 0.8
+    max01: 1
