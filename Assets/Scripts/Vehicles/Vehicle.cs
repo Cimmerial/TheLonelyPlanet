@@ -142,7 +142,7 @@ public abstract class Vehicle : MonoBehaviour, IAtmosphericObject
         // Default cargo if not assigned in inspector.
         if (cargo == null)
         {
-            cargo = new Cargo(new System.Collections.Generic.List<ResourceEnum>(), resourceCapacity: 500, weightCapacity: 99999f, name: "Main Cargo");
+            cargo = new Cargo(resourceCapacity: 500, weightCapacity: 99999f, name: "Main Cargo");
         }
 
         // Setup existing components

@@ -7,6 +7,8 @@ public struct AsteroidFragmentData
     public Texture2D fragmentTexture;
     public Vector2 worldPosition;
     public int pixelCount;
+    public byte[] resourceTypeIdPerPixel;
+    public byte[] qualityBytePerPixel;
 }
 
 public class AsteroidFragmentGenerator
@@ -24,7 +26,11 @@ public class AsteroidFragmentGenerator
     int colliderSimplification,
     List<float> rotationBounds,
     float toughnessMultiplier,
-    float baseMassLossPercentage
+    float baseMassLossPercentage,
+    byte[] parentResourceTypeIdPerPixel,
+    byte[] parentQualityBytePerPixel,
+    AsteroidResourceProfilePreset resourceProfilePreset,
+    ResourceQualityConfig qualityConfig
 )
     {
         // Generate Voronoi-based fragments with retries
@@ -32,7 +38,9 @@ public class AsteroidFragmentGenerator
             originalTexture,
             fragmentCount,
             asteroidWorldPosition,
-            baseMassLossPercentage
+            baseMassLossPercentage,
+            parentResourceTypeIdPerPixel,
+            parentQualityBytePerPixel
         );
 
         // Calculate explosion velocity magnitude from excess force
@@ -73,7 +81,9 @@ public class AsteroidFragmentGenerator
                 massPerPixel,
                 colliderSimplification,
                 rotationBounds,
-                toughnessMultiplier
+                toughnessMultiplier,
+                resourceProfilePreset,
+                qualityConfig
             );
 
             if (fragment != null)
@@ -89,7 +99,9 @@ public class AsteroidFragmentGenerator
         Texture2D originalTexture,
         int fragmentCount,
         Vector2 worldPosition,
-        float baseMassLossPercentage
+        float baseMassLossPercentage,
+        byte[] parentResourceTypeIdPerPixel,
+        byte[] parentQualityBytePerPixel
     )
     {
         List<AsteroidFragmentData> fragments = new List<AsteroidFragmentData>();
@@ -126,7 +138,9 @@ public class AsteroidFragmentGenerator
                 i,
                 worldPosition,
                 fragments,
-                baseMassLossPercentage
+                baseMassLossPercentage,
+                parentResourceTypeIdPerPixel,
+                parentQualityBytePerPixel
             );
         }
 
@@ -170,7 +184,9 @@ public class AsteroidFragmentGenerator
     int siteIndex,
     Vector2 worldPosition,
     List<AsteroidFragmentData> fragments,
-    float baseMassLossPercentage
+    float baseMassLossPercentage,
+    byte[] parentResourceTypeIdPerPixel,
+    byte[] parentQualityBytePerPixel
 )
     {
         int width = originalTexture.width;
@@ -219,11 +235,16 @@ public class AsteroidFragmentGenerator
 
         int actualPixelCount = 0;
 
-        // Copy pixels from original texture
+        // Build resource maps for this fragment.
+        byte[] fragResourceTypeIds = new byte[fragRes * fragRes];
+        byte[] fragQualityBytes = new byte[fragRes * fragRes];
+
+        // Copy pixels from original texture AND resource data.
         for (int y = 0; y < fragRes; y++)
         {
             for (int x = 0; x < fragRes; x++)
             {
+                int fragIdx = y * fragRes + x;
                 int srcX = x - centerOffsetX + minX;
                 int srcY = y - centerOffsetY + minY;
 
@@ -232,10 +253,23 @@ public class AsteroidFragmentGenerator
                 {
                     fragmentTex.SetPixel(x, y, originalTexture.GetPixel(srcX, srcY));
                     actualPixelCount++;
+
+                    // Copy resource data if parent has it.
+                    if (parentResourceTypeIdPerPixel != null && parentQualityBytePerPixel != null)
+                    {
+                        int srcIdx = srcY * width + srcX;
+                        if (srcIdx < parentResourceTypeIdPerPixel.Length)
+                        {
+                            fragResourceTypeIds[fragIdx] = parentResourceTypeIdPerPixel[srcIdx];
+                            fragQualityBytes[fragIdx] = parentQualityBytePerPixel[srcIdx];
+                        }
+                    }
                 }
                 else
                 {
                     fragmentTex.SetPixel(x, y, Color.clear);
+                    fragResourceTypeIds[fragIdx] = 0; // None
+                    fragQualityBytes[fragIdx] = 0;
                 }
             }
         }
@@ -265,12 +299,14 @@ public class AsteroidFragmentGenerator
 
         Vector2 fragmentWorldPos = worldPosition + offsetInPixels / Utility.GLOBAL_PPU;
 
-        // Create fragment data with FINAL pixel count after erosion
+        // Create fragment data with FINAL pixel count after erosion AND resource data.
         AsteroidFragmentData fragmentData = new AsteroidFragmentData
         {
             fragmentTexture = fragmentTex,
             worldPosition = fragmentWorldPos,
-            pixelCount = finalPixelCount
+            pixelCount = finalPixelCount,
+            resourceTypeIdPerPixel = fragResourceTypeIds,
+            qualityBytePerPixel = fragQualityBytes
         };
 
         fragments.Add(fragmentData);
@@ -392,7 +428,9 @@ public class AsteroidFragmentGenerator
      float massPerPixel,
      int colliderSimplification,
      List<float> rotationBounds,
-     float toughnessMultiplier
+     float toughnessMultiplier,
+     AsteroidResourceProfilePreset resourceProfilePreset,
+     ResourceQualityConfig qualityConfig
  )
     {
         // Create new GameObject
@@ -479,7 +517,18 @@ public class AsteroidFragmentGenerator
         asteroidComponent.SetPhysicsData(fragmentMass);
         asteroidComponent.SetMass(fragmentMass);
 
-        Debug.Log($"Fragment spawned: mass={fragmentMass}, velocity={velocity}, angularVel={newRotationSpeed}");
+        // Set the resource map for mining support.
+        int fragRes = fragmentData.fragmentTexture.width;
+        int solidPixels = fragmentData.pixelCount;
+        asteroidComponent.SetResourceMap(
+            fragmentData.resourceTypeIdPerPixel,
+            fragmentData.qualityBytePerPixel,
+            fragRes,
+            fragRes,
+            solidPixels
+        );
+
+        Debug.Log($"Fragment spawned: mass={fragmentMass}, velocity={velocity}, angularVel={newRotationSpeed}, solidPixels={solidPixels}");
 
         fragmentObj.name = $"FRAG - {asteroidComponent.AccumulatedForce:F0}/{asteroidComponent.BreakThreshold:F0}";
 

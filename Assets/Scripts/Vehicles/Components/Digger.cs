@@ -5,13 +5,8 @@ using System.Collections.Generic;
 [RequireComponent(typeof(Collider2D))]
 public class Digger : VComponent
 {
-    [Header("Digger Settings (Legacy Force Damage)")]
-    [SerializeField] private float digEfficiency = 0.4f;
+    [Header("Digger Settings")]
     [SerializeField] private float digTime = 0.5f;
-    [SerializeField] private float digForce = 10f;
-
-    [Header("Digger Settings (Pixel Mining - Phase 5)")]
-    [SerializeField] private bool usePixelMining = true;
     [SerializeField] private int pixelsPerTick = 8;
     [SerializeField] private float brushRadiusWorld = 0.25f;
     [Range(0f, 1f)]
@@ -126,7 +121,7 @@ public class Digger : VComponent
             if (breakable != null)
             {
                 Asteroid asteroid = col.GetComponentInParent<Asteroid>();
-                if (usePixelMining && asteroid != null)
+                if (asteroid != null)
                 {
                     Vector2 probe = diggingCollider.bounds.center;
                     Vector2 contactPoint = col.ClosestPoint(probe);
@@ -148,21 +143,6 @@ public class Digger : VComponent
                     if (mined.Count > 0)
                     {
                         parentVehicle?.Cargo?.AddResourceUnits(mined);
-                    }
-                }
-                else
-                {
-                    BrokenResourceData brokenData = breakable.TakeForceDamage(new DealForceData
-                    {
-                        forceAmount = digForce,
-                        forceDirection = Vector2.zero,
-                        forceReturnEfficiencyPercentage = digEfficiency,
-                    });
-
-                    // TODO: Collect broken resources
-                    if (brokenData != null && brokenData.brokenResources != null)
-                    {
-                        Debug.Log($"[{componentName}] Collected {brokenData.brokenResources.Count} resources");
                     }
                 }
             }

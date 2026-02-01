@@ -28,6 +28,9 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
     [SerializeField] private int applyAfterRemovedPixels = 25;
     [SerializeField] private float applyAfterSeconds = 0.25f;
 
+    [Header("Collider Regeneration (Phase 8)")]
+    [SerializeField] private int regenerateColliderAfterPixels = 16;
+
     [NonSerialized] private byte[] resourceTypeIdPerPixel;
     [NonSerialized] private byte[] qualityBytePerPixel;
     [NonSerialized] private int resourceMapWidth;
@@ -37,6 +40,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
     [NonSerialized] private int miningTickCounter;
     [NonSerialized] private int removedSinceLastApply;
     [NonSerialized] private float lastApplyTime;
+    [NonSerialized] private int removedSinceLastColliderRegen;
 
     [Header("Asteroid Components")]
     [SerializeField] private SpriteRenderer asteroidSpriteRenderer;
@@ -180,6 +184,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
         miningTickCounter = 0;
         removedSinceLastApply = 0;
         lastApplyTime = Time.realtimeSinceStartup;
+        removedSinceLastColliderRegen = 0;
 
         if (logResourceCountsOnGenerate)
         {
@@ -335,14 +340,19 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
             asteroidTexture.Apply();
             removedSinceLastApply = 0;
             lastApplyTime = now;
-
-            // Optional: re-bake newly exposed pixels (not needed since we preserve RGB).
-            // If you later implement mask-only texture changes, you can rebake here.
         }
         else
         {
             // We still need to store modifications for later Apply().
             asteroidTexture.SetPixels32(pixels);
+        }
+
+        // Phase 8: Collider regeneration after enough pixels removed.
+        removedSinceLastColliderRegen += pixelsRemoved;
+        if (removedSinceLastColliderRegen >= regenerateColliderAfterPixels)
+        {
+            RegenerateCollider();
+            removedSinceLastColliderRegen = 0;
         }
 
         return mined;
@@ -685,7 +695,11 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
             colliderSimplification,
             startingRotationSpeedBounds,
             toughnessMultiplier,
-            massReductionPercentage
+            massReductionPercentage,
+            resourceTypeIdPerPixel,
+            qualityBytePerPixel,
+            resourceProfilePreset,
+            qualityConfig
         );
 
         Destroy(gameObject);
@@ -766,6 +780,43 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
     public float ToughnessMultiplier => toughnessMultiplier;
     public float BreakThreshold => breakThreshold;
     public float AccumulatedForce => accumulatedForce;
+
+    /// <summary>
+    /// Regenerate the asteroid's collider based on current texture state.
+    /// </summary>
+    private void RegenerateCollider()
+    {
+        if (asteroidTexture == null || asteroidCollider == null) return;
+
+        // The collider is on a child GameObject named "AsteroidCollider".
+        GameObject colliderChild = asteroidCollider.gameObject;
+
+        // Destroy ALL existing colliders on the child (Unity's Destroy is deferred, so we use DestroyImmediate).
+        PolygonCollider2D[] oldColliders = colliderChild.GetComponents<PolygonCollider2D>();
+        foreach (var old in oldColliders)
+        {
+            DestroyImmediate(old);
+        }
+
+        // Now regenerate using Utility method with same settings as original generation (Legacy mode).
+        asteroidCollider = Utility.GeneratePolygonCollider(
+            colliderChild,
+            asteroidTexture,
+            Utility.GLOBAL_PPU,
+            colliderSimplification,
+            0.1f,
+            Utility.ColliderGenMode.Legacy
+        );
+
+        if (asteroidCollider != null)
+        {
+            Debug.Log($"[{gameObject.name}] Regenerated collider after mining (pathCount={((PolygonCollider2D)asteroidCollider).pathCount})");
+        }
+        else
+        {
+            Debug.LogError($"[{gameObject.name}] Failed to regenerate collider!");
+        }
+    }
 
     /// <summary>
     /// Editor/debug helper. Rerolls this asteroid's generation seed.
