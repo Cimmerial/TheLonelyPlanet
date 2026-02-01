@@ -51,10 +51,12 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
     [Header("Generated Physics Data")]
     [SerializeField] private float totalMass;
     [SerializeField] private float assignedMass;
+    [SerializeField] private float initialBreakThreshold;
     [SerializeField] private float breakThreshold;
     [SerializeField] private float accumulatedForce = 0f;
     [SerializeField] private float atomizeThreshold;
     [SerializeField] private bool isFragment = false;
+    [SerializeField] private int initialSolidPixelCount;
 
 
     public Vector2 GetRelativeVelocity() => atmosphericPhysics?.GetRelativeVelocity() ?? Vector2.zero;
@@ -98,6 +100,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
         float toughnessVariation = UnityEngine.Random.Range(-1f, 1f);
         float finalToughness = toughnessMultiplier * (1f + toughnessVariation);
         breakThreshold = mass * finalToughness;
+        initialBreakThreshold = breakThreshold;
 
         atomizeThreshold = breakThreshold * 4.0f;
 
@@ -179,6 +182,7 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
         this.resourceMapWidth = width;
         this.resourceMapHeight = height;
         this.solidPixelCount = solidPixelCount;
+        this.initialSolidPixelCount = solidPixelCount;
 
         // Reset mining state when regen happens.
         miningTickCounter = 0;
@@ -307,11 +311,25 @@ public class Asteroid : MonoBehaviour, IGravityAffectable, IAtmosphericObject, I
             float miningDamage = pixelsRemoved * damagePerPixel;
             accumulatedForce += miningDamage;
 
+            // Phase 9: Update mass and break threshold based on remaining pixels.
+            solidPixelCount -= pixelsRemoved; // Reduce solid pixel count.
+            float newMass = solidPixelCount * massPerPixel;
+            float massRatio = newMass / totalMass;
+            
+            // Update physics mass.
+            if (rb != null)
+            {
+                rb.mass = newMass;
+            }
+            
+            // Scale break threshold proportionally to remaining mass.
+            breakThreshold = initialBreakThreshold * massRatio;
+            
             // Update name to reflect accumulated damage.
             string prefix = isFragment ? "FRAG" : "AST";
-            gameObject.name = $"{prefix} - {accumulatedForce:F0}/{breakThreshold:F0}";
+            gameObject.name = $"{prefix} - {accumulatedForce:F0}/{breakThreshold:F0} ({solidPixelCount}px)";
 
-            Debug.Log($"[{gameObject.name}] Mining removed {pixelsRemoved} pixels, added {miningDamage:F1}N damage ({damagePerPixel:F2}N/pixel). Accumulated: {accumulatedForce:F0}/{breakThreshold:F0}N");
+            Debug.Log($"[{gameObject.name}] Mining removed {pixelsRemoved}px, mass: {newMass:F1} ({massRatio:P0}), threshold: {breakThreshold:F1}N, damage: +{miningDamage:F1}N");
 
             // Check if mining pushed us over the fracture threshold.
             if (accumulatedForce >= breakThreshold)

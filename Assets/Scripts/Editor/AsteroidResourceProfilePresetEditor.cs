@@ -95,6 +95,9 @@ public class AsteroidResourceProfilePresetEditor : Editor
             SerializedProperty element = _entries.GetArrayElementAtIndex(i);
             SerializedProperty resourceType = element.FindPropertyRelative("resourceType");
             SerializedProperty fraction01 = element.FindPropertyRelative("fraction01");
+            SerializedProperty distributionMode = element.FindPropertyRelative("distributionMode");
+            SerializedProperty veinScale = element.FindPropertyRelative("veinScale");
+            SerializedProperty veinThreshold = element.FindPropertyRelative("veinThreshold");
             SerializedProperty curve = element.FindPropertyRelative("qualityDistributionCurve");
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
@@ -111,6 +114,17 @@ public class AsteroidResourceProfilePresetEditor : Editor
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.PropertyField(fraction01);
+            EditorGUILayout.PropertyField(distributionMode);
+
+            // Show vein settings only if VEIN mode is selected
+            if (distributionMode.enumValueIndex == (int)ResourceDistributionMode.VEIN)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(veinScale);
+                EditorGUILayout.PropertyField(veinThreshold);
+                EditorGUI.indentLevel--;
+            }
+
             EditorGUILayout.PropertyField(curve);
 
             EditorGUILayout.EndVertical();
@@ -124,6 +138,9 @@ public class AsteroidResourceProfilePresetEditor : Editor
             SerializedProperty element = _entries.GetArrayElementAtIndex(idx);
             element.FindPropertyRelative("resourceType").enumValueIndex = 0;
             element.FindPropertyRelative("fraction01").floatValue = 1f;
+            element.FindPropertyRelative("distributionMode").enumValueIndex = (int)ResourceDistributionMode.RANDOM;
+            element.FindPropertyRelative("veinScale").floatValue = 2f;
+            element.FindPropertyRelative("veinThreshold").floatValue = 0.5f;
 
             // Leave curve null; OnValidate will supply a sane default.
             element.FindPropertyRelative("qualityDistributionCurve").animationCurveValue = null;

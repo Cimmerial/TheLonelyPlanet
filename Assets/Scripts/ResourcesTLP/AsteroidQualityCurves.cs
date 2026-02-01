@@ -3,12 +3,40 @@ using UnityEngine;
 public static class AsteroidQualityCurves
 {
     /// <summary>
-    /// Default "normal-ish" quality curve.
-    /// Mean 0.5, sigma 0.15, truncated/clamped to [0,1].
+    /// Default quality curve: inverse exponential (starts high, slopes down to 0).
+    /// Most resources are low quality, few are high quality.
     /// </summary>
     public static AnimationCurve DefaultNormalQualityCurve()
     {
-        return NormalInverseCdfCurve(mean01: 0.5f, sigma01: 0.15f);
+        return InverseExponentialCurve();
+    }
+
+    /// <summary>
+    /// Inverse exponential curve: heavily biased toward low quality.
+    /// ~70% of samples yield low quality (0-0.3), ~30% yield higher quality.
+    /// Uses exponential decay: y = (1-x)^3
+    /// </summary>
+    public static AnimationCurve InverseExponentialCurve()
+    {
+        AnimationCurve curve = new AnimationCurve();
+        
+        // Sample points along exponential decay curve.
+        // y = (1-x)^3 gives strong bias toward low values.
+        int samples = 11;
+        for (int i = 0; i < samples; i++)
+        {
+            float x = i / (samples - 1f); // 0 to 1 (uniform input)
+            float y = Mathf.Pow(1f - x, 3f); // Exponential decay output
+            curve.AddKey(x, y);
+        }
+
+        // Smooth the curve
+        for (int i = 0; i < curve.length; i++)
+        {
+            AnimationUtilityCompat.SetAutoTangents(curve, i);
+        }
+
+        return curve;
     }
 
     /// <summary>

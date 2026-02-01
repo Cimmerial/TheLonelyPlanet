@@ -2,14 +2,39 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+[Serializable] 
+public enum ResourceDistributionMode
+{
+    RANDOM,  // Randomly scattered based on fraction weight
+    BASE,    // Fills all remaining unassigned pixels (typically used for common base resource)
+    VEIN     // Forms procedural veins using Perlin noise
+}
+
 [Serializable]
 public class AsteroidResourceProfileEntry
 {
-    public ResourceEnum resourceType;
+    [SerializeField] public ResourceEnum resourceType;
 
+    [SerializeField]
     [Range(0f, 1f)]
     public float fraction01 = 1f;
 
+    [SerializeField]
+    [Tooltip("How this resource is distributed in the asteroid.")]
+    public ResourceDistributionMode distributionMode = ResourceDistributionMode.RANDOM;
+
+    [Header("Vein Settings (VEIN mode only)")]
+    [SerializeField]
+    [Tooltip("Size of veins (larger = bigger veins).")]
+    [Range(0.1f, 10f)]
+    public float veinScale = 2f;
+
+    [SerializeField]
+    [Tooltip("Density threshold (lower = rarer veins).")]
+    [Range(0f, 1f)]
+    public float veinThreshold = 0.5f;
+
+    [SerializeField]
     [Tooltip("Maps a uniform random sample u in [0..1] -> quality in [0..1].")]
     public AnimationCurve qualityDistributionCurve;
 
